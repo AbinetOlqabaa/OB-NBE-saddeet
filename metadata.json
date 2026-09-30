@@ -1,0 +1,6 @@
+{
+  "name": "OB / NBE Regulatory Reporting Platform",
+  "description": "Landing pad and runtime kernel for the OB/NBE regulatory reporting application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
