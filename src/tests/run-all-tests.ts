@@ -352,6 +352,7 @@ import { runRelationshipEffectiveAccessEngineTests } from './relationship-effect
 import { runPhase6BulkOperationsTests } from './phase6-bulk-operations.test.ts';
 import { runRealtimeSsotSynchronizationTests } from './realtime-ssot-synchronization.test.ts';
 import { runConfigurationGovernanceVersioningTests } from './configuration-governance-versioning.test.ts';
+import { runPhase9PlatformHardeningAcceptanceTests } from './phase9-platform-hardening-acceptance.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -374,6 +375,7 @@ async function runFullApplicationTestSuite() {
   await runPhase6BulkOperationsTests();
   await runRealtimeSsotSynchronizationTests();
   runConfigurationGovernanceVersioningTests();
+  await runPhase9PlatformHardeningAcceptanceTests();
 
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');

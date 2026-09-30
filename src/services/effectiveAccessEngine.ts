@@ -629,7 +629,12 @@ class EffectiveAccessEngineClass {
       const d = configService.getDepartmentById(id);
       return d ? d.name : id;
     });
-    const allLinkedDepts = Array.from(new Set([...linkedDepts, ...configLinkedDepts]));
+    const ssotDeptAssignments = configService.getDepartmentReportAssignments({ reportKey, activeOnly: true });
+    const ssotAssignedDeptNames = ssotDeptAssignments.map((a) => {
+      const d = configService.getDepartmentById(a.departmentId);
+      return d ? d.name : a.departmentName;
+    });
+    const allLinkedDepts = Array.from(new Set([...linkedDepts, ...configLinkedDepts, ...ssotAssignedDeptNames]));
 
     // Relationship 1: Home Department Match
     const isHomeDept = Boolean(
@@ -646,7 +651,11 @@ class EffectiveAccessEngineClass {
 
     // Relationship 3: Direct User-Report Assignment
     const directAssignments = this.userReportAssignments.get(user.id);
-    const isDirectAssignment = Boolean(directAssignments && directAssignments.has(reportKey));
+    const ssotUserAssignments = configService.getUserReportAssignments({ userId: user.id, reportKey });
+    const isDirectAssignment = Boolean(
+      (directAssignments && directAssignments.has(reportKey)) ||
+      ssotUserAssignments.some((a) => a.isActive !== false)
+    );
 
     // Relationship 4: Special Access Grants
     let grants: SpecialAccessGrant[] = (user as any).specialAccessGrants || [];
@@ -883,7 +892,31 @@ class EffectiveAccessEngineClass {
    * for a given user session.
    */
   public getEffectiveReportPermissionsMatrix(user: UserSession | UserAccount): EffectiveReportPermissions[] {
-    const allReports = getAllReports();
+    if (!user || !user.id || !user.role) {
+      return [];
+    }
+    const reportsMap = new Map<string, any>();
+    getAllReports().forEach((r) => reportsMap.set(r.ReturnKey, r));
+    try {
+      configService.getReports().forEach((r) => {
+        if (!reportsMap.has(r.returnKey)) {
+          reportsMap.set(r.returnKey, {
+            ReturnKey: r.returnKey,
+            Code: r.code || r.returnKey,
+            Name: r.name,
+            Title: r.name,
+            Category: r.category || 'Credit & Lending',
+            Frequency: r.frequency || 'MONTHLY',
+            department: configService.getDepartmentById(r.defaultDepartmentId)?.name || 'Credit Operations & Portfolio Management',
+            ReturnItemsList: [],
+            DynamicItemsList: [],
+            Formulas: [],
+            ValidationRules: [],
+          });
+        }
+      });
+    } catch (_) {}
+    const allReports = Array.from(reportsMap.values());
     const matrix: EffectiveReportPermissions[] = [];
 
     for (const report of allReports) {

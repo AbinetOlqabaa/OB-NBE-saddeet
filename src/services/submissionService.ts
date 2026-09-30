@@ -107,6 +107,11 @@ class SubmissionServiceClass {
 
   constructor() {
     this.seedInitialSubmissions();
+    try {
+      configService.onDepartmentRename((oldName, newName) => {
+        this.renameDepartment(oldName, newName);
+      });
+    } catch (_) {}
     this.hydrateFromIndexedDB().catch(() => {});
     this.seedIndexedDB().catch(() => {});
   }

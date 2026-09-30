@@ -14,6 +14,7 @@ import { getAllReports } from '../data/report-registry.ts';
 import { auditService } from './auditService.ts';
 import { effectiveAccessEngine } from './effectiveAccessEngine.ts';
 import { realtimeSsotEngine } from './realtimeSsotEngine.ts';
+import { configService } from './configService.ts';
 
 export type UserRole = 'ADMIN' | 'MAKER' | 'CHECKER' | 'AUDITOR';
 export type UserStatus = 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED';
@@ -254,6 +255,11 @@ class UserServiceClass {
 
   constructor() {
     this.seedUsers();
+    try {
+      configService.onDepartmentRename((oldName, newName) => {
+        this.renameDepartment(oldName, newName);
+      });
+    } catch (_) {}
   }
 
   private seedUsers(): void {
@@ -885,6 +891,15 @@ class UserServiceClass {
     return { success: true, user: safe as UserAccount };
   }
 
+  public updateUserRole(
+    userId: string,
+    newRole: UserRole,
+    adminName: string = 'Administrator',
+    reason?: string
+  ): { success: boolean; user?: UserAccount; message?: string } {
+    return this.updateUser(userId, { role: newRole }, adminName);
+  }
+
   /**
    * Pre-flight safety check determining whether an entity can be destructively removed,
    * or whether historical reporting references prohibit true deletion under NBE compliance rules.
@@ -1028,7 +1043,7 @@ class UserServiceClass {
       expiresAt?: string;
     },
     adminName: string
-  ): { success: boolean; user?: UserAccount; message?: string } {
+  ): { success: boolean; user?: UserAccount; grant?: SpecialAccessGrant; message?: string } {
     const user = this.users.get(userId);
     if (!user) {
       return { success: false, message: 'Target user not found.' };
@@ -1094,6 +1109,7 @@ class UserServiceClass {
     return {
       success: true,
       user: safe as UserAccount,
+      grant: newGrant,
       message: `Special access granted to ${user.name} for ${targetLabel}.`,
     };
   }

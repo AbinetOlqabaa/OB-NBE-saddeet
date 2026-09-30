@@ -4,8 +4,8 @@
  */
 
 import { BrowserSafeEventEmitter } from '../utils/browserEventEmitter.ts';
-import { OROMIA_BANK_DEPARTMENTS, type DepartmentDefinition } from '../data/organizationHierarchy.ts';
-import { getAllReports, getReportByKey, NBE_REPORTS, syncSSOTReportToRegistry, retireSSOTReportInRegistry } from '../data/report-registry.ts';
+import { OROMIA_BANK_DEPARTMENTS, type DepartmentDefinition, recordDepartmentRename, registerDynamicDepartmentLookup } from '../data/organizationHierarchy.ts';
+import { getAllReports, getReportByKey, NBE_REPORTS, syncSSOTReportToRegistry, retireSSOTReportInRegistry, renameDepartmentInReports } from '../data/report-registry.ts';
 import { auditService } from './auditService.ts';
 import { realtimeSsotEngine } from './realtimeSsotEngine.ts';
 import type { ReportMetadata } from '../types/regulatory.ts';
@@ -358,13 +358,36 @@ class ConfigurationEngine {
   private lastChangeTime = new Date().toISOString();
 
   public readonly events = new BrowserSafeEventEmitter();
+  private deptRenameHandlers: Array<(oldName: string, newName: string) => void> = [];
 
   constructor() {
     this.events.setMaxListeners(100);
     try {
       realtimeSsotEngine.setHashProvider(() => this.generateGlobalHash());
     } catch (_) {}
+    try {
+      registerDynamicDepartmentLookup((key) => {
+        const report = this.getReportDefinition(key);
+        if (report?.defaultDepartmentId) {
+          const dept = this.getDepartmentById(report.defaultDepartmentId);
+          if (dept) return dept.name;
+        }
+        const assignments = this.getDepartmentReportAssignments({ reportKey: key, activeOnly: true });
+        if (assignments.length > 0) {
+          const dept = this.getDepartmentById(assignments[0].departmentId);
+          if (dept) return dept.name;
+        }
+        return undefined;
+      });
+    } catch (_) {}
     this.bootstrapDefaults();
+  }
+
+  public onDepartmentRename(handler: (oldName: string, newName: string) => void): () => void {
+    this.deptRenameHandlers.push(handler);
+    return () => {
+      this.deptRenameHandlers = this.deptRenameHandlers.filter((h) => h !== handler);
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -788,7 +811,7 @@ class ConfigurationEngine {
     return `ssot_${this.deptVersion}_${this.reportsVersion}_${this.workflowsVersion}_${this.rbacVersion}_${this.assignmentsVersion}`;
   }
 
-  private bumpVersion(domain: 'DEPARTMENT' | 'REPORT' | 'WORKFLOW' | 'RBAC' | 'ASSIGNMENT'): void {
+  public bumpVersion(domain: 'DEPARTMENT' | 'REPORT' | 'WORKFLOW' | 'RBAC' | 'ASSIGNMENT'): void {
     if (domain === 'DEPARTMENT') this.deptVersion++;
     else if (domain === 'REPORT') this.reportsVersion++;
     else if (domain === 'WORKFLOW') this.workflowsVersion++;
@@ -1089,7 +1112,15 @@ class ConfigurationEngine {
 
     if (updates.name && updates.name !== dept.name) {
       diff.push({ field: 'name', oldValue: dept.name, newValue: updates.name });
+      const oldName = dept.name;
       dept.name = updates.name;
+      recordDepartmentRename(oldName, updates.name);
+      renameDepartmentInReports(oldName, updates.name);
+      for (const handler of this.deptRenameHandlers) {
+        try {
+          handler(oldName, updates.name);
+        } catch (_) {}
+      }
     }
     if (updates.shortCode && updates.shortCode !== dept.shortCode) {
       diff.push({ field: 'shortCode', oldValue: dept.shortCode, newValue: updates.shortCode.toUpperCase() });
