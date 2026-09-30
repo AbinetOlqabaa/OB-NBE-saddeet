@@ -587,5 +587,22 @@ Phase 1 of the visual design system and color standardization cycle has been com
 | **GATE-11** | Responsive Layout | Tested on 9 viewports (320px to 1920px), zero horizontal overflow, mobile swipe navigation | **PASS** | Responsive UI test suite |
 | **GATE-12** | E2E Validation | All 14 specified end-to-end workflows executed and passed cleanly | **PASS** | `phase5-final-verification.test.ts` |
 | **GATE-13** | .ai Knowledge Base Normalization | 29 canonical files (`00_` to `28_`), zero duplicates, all internal references repaired, clean AI index created | **PASS** | Phase 0 Documentation Normalization |
+| **GATE-14** | Dynamic Governance & SSOT Hardening (Phase 8-9) | Full dynamic SSOT, mutation scenarios, audit explanation, migration integrity | **PASS** | `phase9-platform-hardening-acceptance.test.ts` (100% pass) |
+
+---
+
+## 5. Biometric Service Roadmap & Phase Specifications (Phases 10 - 15)
+
+In response to regulatory modernization and user device flexibility, the biometric architecture has been expanded into discrete engineering phases with dedicated specification documents in the project root:
+
+| Phase | Specification Document | Domain & Focus Areas | Status |
+|---|---|---|---|
+| **Phase 10** | `10_BIOMETRIC_DEVICE_INTELLIGENCE_AND_PERMISSION_NEGOTIATION.md` | Mobile vs Tablet vs PC detection, camera availability diagnostics, interactive permission negotiation, persistent consent, graceful fallbacks, notification service | **SPECIFIED (READY FOR EXECUTION)** |
+| **Phase 11** | `11_REAL_TIME_FACE_DETECTION_AND_FEATURE_EXTRACTION_ENGINE.md` | Optical face detection, confidence thresholding, countdown lifecycle, mathematical vector extraction, liveness/anti-spoofing, stage UI animations, DB persistence | **SPECIFIED (READY FOR EXECUTION)** |
+| **Phase 12** | `12_WEBAUTHN_FIDO2_FINGERPRINT_REGISTRATION_SERVICE.md` | Platform authenticator diagnostics (Touch ID, Windows Hello, Android BiometricPrompt), asymmetric key-pair attestation, iframe sandbox resilience, SSOT storage | **SPECIFIED (READY FOR EXECUTION)** |
+| **Phase 13** | `13_UNIFIED_BIOMETRIC_SIGN_IN_AND_MULTI_MODAL_AUTHENTICATION.md` | Unified multi-modal sign-in, zero-interference mode switching, vector comparison, WebAuthn assertion, rate limiting/lockout, stage animations, security alerts | **SPECIFIED (READY FOR EXECUTION)** |
+| **Phase 14** | `14_BIOMETRIC_RESET_LIFECYCLE_GOVERNANCE_AND_AUDIT.md` | Mandatory password re-auth, stored vector verification, multi-step reset wizard, administrative emergency wipe, tamper-evident audit logs, transactional alerts | **SPECIFIED (READY FOR EXECUTION)** |
+| **Phase 15** | `15_BIOMETRIC_PLATFORM_HARDENING_E2E_AND_ACCEPTANCE.md` | Automated test harness, cross-device responsive matrix, fault-injection stress testing, NBE BSD/03/2020 compliance verification, final acceptance gate | **SPECIFIED (READY FOR EXECUTION)** |
+
 
 

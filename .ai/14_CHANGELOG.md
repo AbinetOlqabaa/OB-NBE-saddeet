@@ -4,6 +4,35 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [10.0.0-phase10-to-15-biometric-services-roadmap] - 2026-09-30
+
+### Added
+- **Biometric Service Specifications & Engineering Architecture (Phases 10 to 15)**:
+  - Formulated full-stack, enterprise-grade engineering specifications in individual prompt files within the project root:
+    - `10_BIOMETRIC_DEVICE_INTELLIGENCE_AND_PERMISSION_NEGOTIATION.md` (Mobile/Tablet/PC hardware diagnostics, camera availability probing, two-tier consent negotiation, persistent permissions, graceful fallbacks, notification services).
+    - `11_REAL_TIME_FACE_DETECTION_AND_FEATURE_EXTRACTION_ENGINE.md` (Optical canvas face detection, confidence scoring >80%, 20-second countdown lifecycle, mathematical vector extraction, anti-spoofing/liveness verification, 4-stage UI animations, SSOT DB storage, enrollment flags).
+    - `12_WEBAUTHN_FIDO2_FINGERPRINT_REGISTRATION_SERVICE.md` (FIDO2 / WebAuthn platform authenticators [Touch ID, Windows Hello, Android BiometricPrompt], asymmetric key-pair generation, iframe sandbox fallback, challenge-response validation, SSOT registration).
+    - `13_UNIFIED_BIOMETRIC_SIGN_IN_AND_MULTI_MODAL_AUTHENTICATION.md` (Zero-interference multi-modal sign-in, Face ID vector comparison, WebAuthn assertion verification, account status guardrails, 3-attempt brute-force lockout, rich UI animations, security notifications).
+    - `14_BIOMETRIC_RESET_LIFECYCLE_GOVERNANCE_AND_AUDIT.md` (Mandatory password re-authentication, previous vector status archival as `REVOKED`, 4-step reset wizard, administrative emergency wipe, tamper-evident audit logs, transactional security alerts).
+    - `15_BIOMETRIC_PLATFORM_HARDENING_E2E_AND_ACCEPTANCE.md` (Comprehensive automated test harness, responsive cross-device matrix, fault injection, regulatory acceptance gate under NBE Directive BSD/03/2020).
+
+---
+
+## [9.0.0-phase9-full-platform-hardening-acceptance] - 2026-09-30
+
+### Hardened & Fixed
+- **Full Platform Hardening & Acceptance Gates (`09_FULL_PLATFORM_HARDENING_AND_ACCEPTANCE.md`)**:
+  - Validated initial migrations across all 8 backend apps (`departments`, `reports`, `accounts`, `workflows`, `audit`, `permissions`, `notifications`, `nbe_gateway`).
+  - Implemented dynamic department rename synchronization with `organizationHierarchy` and `userService` (`registerDynamicDepartmentLookup`, `recordDepartmentRename`).
+  - Enforced dynamic report retirement check in `submissionService.createSubmission` and `saveDraft`, preventing new submissions while preserving historical returns.
+  - Implemented immutable historical template snapshots in `getEffectiveTemplate`, guaranteeing past returns reproduce their exact schema without version leakage.
+  - Fixed formula injection sanitization (`sanitizeFormulaInjection`) in bulk operations engine.
+  - Validated NBE Simulator contracts, receipt generation, idempotency, and error modes (`VALIDATION_FAILED`, `AUTHENTICATION_FAILED`, `SYSTEM_ERROR`).
+  - Cache latency benchmarked at <0.001ms/call with immediate global configuration hash rotation.
+  - 100% assertions satisfied across automated test suites (`phase9-platform-hardening-acceptance.test.ts`).
+
+---
+
 ## [8.0.0-phase8-configuration-governance-versioning-rollback] - 2026-09-30
 
 ### Added
