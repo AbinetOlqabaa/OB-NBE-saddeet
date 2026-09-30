@@ -343,6 +343,7 @@ import { runResponsiveUiAndLayoutTests } from './responsive-ui-and-layout.test.t
 import { runAuditorWorkflowTests } from './auditor-workflow.test.ts';
 import { runDesignSystemColorsTests } from './design-system-and-colors.test.ts';
 import { runPaginationSuiteTests } from './pagination-suite.test.ts';
+import { runPhase2ConfigurationSSOTTests } from './phase2-configuration-ssot.test.ts';
 import { runPhase4RegressionHardeningTests } from './phase4-regression-hardening.test.ts';
 import { runPhase5FinalVerificationTests } from './phase5-final-verification.test.ts';
 
@@ -351,6 +352,7 @@ async function runFullApplicationTestSuite() {
   await runSecurityRbacWorkflowTests();
   await runNbeSimulatorTests();
   await runPhase2SsotTests();
+  await runPhase2ConfigurationSSOTTests();
   await runBiometricAndAccessoryTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();

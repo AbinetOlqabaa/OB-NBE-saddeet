@@ -23,6 +23,7 @@ import {
   getDepartmentForReport,
 } from './src/data/organizationHierarchy.ts';
 import { paginateList, PaginatedResult } from './src/utils/paginationUtils.ts';
+import { configService } from './src/services/configService.ts';
 
 dotenv.config();
 
@@ -78,6 +79,251 @@ function getAuthOrClientStatusCode(errMessage: string): number {
   }
   return 400;
 }
+
+// -------------------------------------------------------------
+// DYNAMIC CONFIGURATION & SSOT FOUNDATION API (PHASE 2)
+// -------------------------------------------------------------
+
+// System configuration summary, version hashes, entity counts
+app.get('/api/config/summary', (req, res) => {
+  res.json(configService.getConfigSummary());
+});
+
+// Real-Time Server-Sent Events (SSE) configuration update stream
+app.get('/api/config/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
+
+  // Initial handshake
+  res.write(`event: handshake\ndata: ${JSON.stringify({ status: 'CONNECTED', timestamp: new Date().toISOString() })}\n\n`);
+
+  const onConfigChanged = (data: any) => {
+    res.write(`event: config_changed\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const onCacheInvalidated = (data: any) => {
+    res.write(`event: cache_invalidated\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  configService.events.on('CONFIG_CHANGED', onConfigChanged);
+  configService.events.on('CACHE_INVALIDATED', onCacheInvalidated);
+
+  req.on('close', () => {
+    configService.events.off('CONFIG_CHANGED', onConfigChanged);
+    configService.events.off('CACHE_INVALIDATED', onCacheInvalidated);
+  });
+});
+
+// Explicit cache invalidation hook
+app.post('/api/config/cache/invalidate', (req, res) => {
+  const { domain } = req.body;
+  configService.invalidateCache(domain);
+  res.json({ success: true, message: `Cache invalidated for domain: ${domain || 'ALL'}`, summary: configService.getConfigSummary() });
+});
+
+// Department Hierarchy SSOT
+app.get('/api/config/departments', (req, res) => {
+  const flat = req.query.flat === 'true';
+  const activeOnly = req.query.activeOnly !== 'false';
+  const departments = configService.getDepartments({ flat, activeOnly });
+  res.json(departments);
+});
+
+app.get('/api/config/departments/:id', (req, res) => {
+  const dept = configService.getDepartmentById(req.params.id);
+  if (!dept) {
+    res.status(404).json({ error: 'Department not found' });
+    return;
+  }
+  const ancestors = configService.getDepartmentAncestors(req.params.id);
+  const descendants = configService.getDepartmentDescendants(req.params.id);
+  const assignments = configService.getDepartmentReportAssignments({ departmentId: req.params.id });
+  res.json({ ...dept, ancestors, descendants, assignments });
+});
+
+app.post('/api/config/departments', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'System Administrator', role: 'ADMIN' };
+  try {
+    const created = configService.createDepartment(req.body, actor);
+    res.status(201).json(created);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/config/departments/:id', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'System Administrator', role: 'ADMIN' };
+  try {
+    const updated = configService.updateDepartment(req.params.id, req.body, actor);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Report Definitions & Metadata SSOT
+app.get('/api/config/reports', (req, res) => {
+  const { category, frequency, status, departmentId } = req.query as any;
+  const reports = configService.getReports({ category, frequency, status, departmentId });
+  res.json(reports);
+});
+
+app.get('/api/config/reports/:key', (req, res) => {
+  const report = configService.getReportDefinition(req.params.key);
+  if (!report) {
+    res.status(404).json({ error: `Report definition '${req.params.key}' not found` });
+    return;
+  }
+  res.json(report);
+});
+
+app.get('/api/config/reports/:key/versions', (req, res) => {
+  const versions = configService.getReportVersions(req.params.key);
+  res.json(versions);
+});
+
+app.get('/api/config/reports/:key/versions/:version', (req, res) => {
+  const vNum = parseInt(req.params.version, 10);
+  const version = configService.getReportVersion(req.params.key, vNum);
+  if (!version) {
+    res.status(404).json({ error: `Version ${vNum} of report '${req.params.key}' not found` });
+    return;
+  }
+  res.json(version);
+});
+
+// Create new report version without destroying historical submissions
+app.post('/api/config/reports/:key/versions', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  if (!req.body.changelogSummary) {
+    res.status(400).json({ error: 'Changelog summary is mandatory when creating a new report version.' });
+    return;
+  }
+  try {
+    const newVersion = configService.createReportVersion(req.params.key, req.body, actor);
+    res.status(201).json(newVersion);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Dynamic Report Authorization Matrix for Current or Specified User
+app.get('/api/config/authorized-reports', (req, res) => {
+  const { userId, role, department } = req.query as any;
+  let userObj: any = null;
+
+  if (userId) {
+    userObj = userService.getById(userId);
+  }
+  if (!userObj) {
+    userObj = {
+      id: userId || 'anonymous',
+      role: role || 'MAKER',
+      department: department || 'Credit Operations',
+      specialAccessGrants: [],
+    };
+  }
+
+  const authMatrix = configService.getAuthorizedReportsForUser(userObj);
+  res.json(authMatrix);
+});
+
+// Explicit Relationship: Department ↔ Report
+app.get('/api/config/assignments/departments', (req, res) => {
+  const { departmentId, reportKey, activeOnly } = req.query as any;
+  const assignments = configService.getDepartmentReportAssignments({
+    departmentId,
+    reportKey,
+    activeOnly: activeOnly === 'true',
+  });
+  res.json(assignments);
+});
+
+app.post('/api/config/assignments/departments', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  try {
+    const assigned = configService.assignDepartmentReport(req.body, actor);
+    res.status(201).json(assigned);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/config/assignments/departments/:id', (req, res) => {
+  const actor = (req.body && req.body.actor) || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  const removed = configService.removeDepartmentReportAssignment(req.params.id, actor);
+  if (removed) {
+    res.json({ success: true, message: 'Assignment removed' });
+  } else {
+    res.status(404).json({ error: 'Assignment not found' });
+  }
+});
+
+// Explicit Relationship: User ↔ Report
+app.get('/api/config/assignments/users', (req, res) => {
+  const { userId, reportKey, duty } = req.query as any;
+  const assignments = configService.getUserReportAssignments({ userId, reportKey, duty });
+  res.json(assignments);
+});
+
+app.post('/api/config/assignments/users', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  try {
+    const assigned = configService.assignUserReport(req.body, actor);
+    res.status(201).json(assigned);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/config/assignments/users/:id', (req, res) => {
+  const actor = (req.body && req.body.actor) || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  const removed = configService.removeUserReportAssignment(req.params.id, actor);
+  if (removed) {
+    res.json({ success: true, message: 'User assignment removed' });
+  } else {
+    res.status(404).json({ error: 'Assignment not found' });
+  }
+});
+
+// Roles & Permissions SSOT
+app.get('/api/config/roles', (req, res) => {
+  res.json(configService.getRoles());
+});
+
+app.put('/api/config/roles/:code/permissions', (req, res) => {
+  const actor = req.body.actor || { id: 'usr_admin', name: 'Compliance Administrator', role: 'ADMIN' };
+  const { permissions } = req.body;
+  if (!Array.isArray(permissions)) {
+    res.status(400).json({ error: 'Permissions array required' });
+    return;
+  }
+  try {
+    const updated = configService.updateRolePermissions(req.params.code, permissions, actor);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/config/permissions', (req, res) => {
+  res.json(configService.getPermissions());
+});
+
+// Workflows SSOT
+app.get('/api/config/workflows', (req, res) => {
+  res.json(configService.getWorkflows());
+});
+
+// Configuration Change Audit Trail
+app.get('/api/config/changes', (req, res) => {
+  const limit = parseInt((req.query.limit as string) || '100', 10);
+  res.json(configService.getChangeLogs(limit));
+});
 
 // -------------------------------------------------------------
 // REGULATORY API ROUTES

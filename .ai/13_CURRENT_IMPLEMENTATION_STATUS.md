@@ -23,6 +23,7 @@
 | **First-Class Auditor** | `src/services/auditService.ts`, `src/components/AuditorDashboard.tsx` | COMPLETED & VERIFIED | 7 audit modules, findings lifecycle, cryptographic SHA-256 evidence seals |
 | **NBE Adapter & Simulator** | `src/services/nbeAdapter.ts`, `src/services/nbeSimulator.ts` | COMPLETED & VERIFIED | 6 failure modes, idempotency keys, receipt parsing, mTLS |
 | **Phase 2 SSOT Ingestion** | `src/services/phase2Pipeline.ts`, `src/services/ssotRegistry.ts` | COMPLETED & VERIFIED | Bronze/Silver/Gold pipeline, DQ rules, automated GL reconciliation |
+| **Phase 2 Dynamic Config & SSOT Foundation** | `src/services/configService.ts`, `backend/apps/*`, `.ai/29_CONFIGURATION_SSOT_AND_METADATA_ARCHITECTURE.md` | COMPLETED & VERIFIED | Hierarchical departments, metadata reports, immutable versioning, explicit M:N relationships, REST API (`/api/config/*`), cache consistency, real-time SSE stream |
 | **Excel Service** | `src/utils/excelService.ts` | COMPLETED & VERIFIED | Lossless multi-sheet .xlsx generation, dynamic area tables, re-import |
 | **Knowledge Base Normalization**| `.ai/*.md` (29 canonical files) | COMPLETED & VERIFIED | Strict `NUMBER_CANONICAL_NAME.md` schema, zero duplicates, clean index |
 | **Phase 1 Terminology Update** | `src/components/LoginPage.tsx`, `src/components/RegisterPage.tsx` | COMPLETED & VERIFIED | Maker / Checker / Auditor prompt, button, title, and role selection verified |

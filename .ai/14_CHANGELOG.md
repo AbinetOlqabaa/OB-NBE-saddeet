@@ -4,6 +4,41 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [2.0.0-phase2-dynamic-configuration-ssot] - 2026-09-30
+
+### Added
+- **Dynamic Configuration & SSOT Engine (`src/services/configService.ts`)**:
+  - Implemented authoritative in-memory & database-backed SSOT engine governing Departments, Reports, Versions, Roles, Permissions, Assignments, and Workflows.
+  - Implemented hierarchical department modeling with self-referential parent/children relations, hierarchy levels (0: Division, 1: Department, 2: Unit/Section), hierarchical path strings, and cycle prevention.
+  - Implemented metadata-driven report definitions capable of representing return identity, frequency, risk categories, central bank mappings, fixed fields, dynamic schedule columns, and mathematical formulas.
+  - Implemented non-destructive report versioning (Version 1, Version 2, etc.) ensuring historical regulatory submissions stay pinned to their original version schema snapshot without corruption.
+  - Implemented explicit relationship entities: `DepartmentReportAssignment` (roles: PRIMARY_OWNER, CONTRIBUTOR, REVIEWER, SUPERVISORY) and `UserReportAssignment` (duties: MAKER, CHECKER, AUDITOR, VIEWER).
+  - Implemented dynamic authorization matrix resolving user access across explicit duties, home departments, and time-bound special access grants.
+  - Implemented domain version counters and composite cache hash (`deptVersion`, `reportsVersion`, `workflowsVersion`, `rbacVersion`, `assignmentsVersion`, `globalConfigHash`) with atomic cache invalidation.
+  - Implemented real-time configuration event emitter broadcasting typed events (`CONFIG_CHANGED`, `CACHE_INVALIDATED`).
+- **REST Configuration API (`server.ts`)**:
+  - Exposed comprehensive configuration endpoints under `/api/config/*`: `/api/config/summary`, `/api/config/departments`, `/api/config/reports`, `/api/config/authorized-reports`, `/api/config/roles`, `/api/config/permissions`, `/api/config/workflows`, `/api/config/assignments/*`, `/api/config/changes`, and `/api/config/cache/invalidate`.
+  - Added real-time Server-Sent Events (SSE) notification stream (`GET /api/config/events`) enabling instantaneous client updates upon backend mutations.
+- **Frontend Configuration SSOT Client Hook (`src/hooks/useConfigurationSSOT.ts`)**:
+  - React hook querying authoritative backend `/api/config/*` endpoints on mount.
+  - Subscribes to `/api/config/events` SSE stream for automatic UI re-synchronization on backend updates.
+- **Django Backend Domain Architecture & Migrations (`backend/apps/`)**:
+  - Enhanced `Department` with `parent`, `hierarchy_level`, `path`, `status`, `effective_from`, and `effective_to`.
+  - Added `DepartmentReportAssignment` model in `departments/models.py`.
+  - Added `ReportDefinition`, `ReportVersion`, `ReportSection`, `ReportField`, `ReportColumn`, and `ReportRow` in `reports/models.py`.
+  - Added `Role`, `Permission`, `UserReportAssignment`, and `DepartmentMember` in `accounts/models.py`.
+  - Added `Submission`, `WorkflowDefinition`, and `WorkflowStep` in `workflows/models.py`.
+  - Added `ConfigurationChange` audit model in `audit/models.py`.
+  - Created safe Django migrations: `departments/0002_add_hierarchy_and_assignments.py`, `reports/0001_initial.py`, `accounts/0002_add_role_permission_and_assignments.py`, `workflows/0001_initial.py`, and `audit/0003_configurationchange.py`.
+  - Created Django seeding command `reports/management/commands/seed_ssot_configuration.py`.
+- **Dedicated Architecture Specification (`.ai/29_CONFIGURATION_SSOT_AND_METADATA_ARCHITECTURE.md`)**:
+  - Complete architectural specification detailing governance principles, entity models, hierarchy traversal, versioning mechanics, relationship schemas, and cache invalidation.
+- **Automated Verification Suite (`src/tests/phase2-configuration-ssot.test.ts`)**:
+  - 57 automated tests covering department hierarchy, report metadata, versioning historical integrity, explicit relationships, dynamic authorization boundaries, RBAC SSOT, workflow definitions, and cache consistency.
+  - Added to master test runner `src/tests/run-all-tests.ts`.
+
+---
+
 ## [1.9.2-phase1-login-registration-terminology] - 2026-09-30
 
 ### Changed

@@ -60,6 +60,7 @@ The `.ai/` directory is the canonical project memory and architectural constitut
 | **26** | `26_REQUIREMENTS_TRACEABILITY.md` | Traceability matrix linking NBE regulatory requirements to code files and test suites | To verify that regulatory requirements have corresponding implementations and tests |
 | **27** | `27_KNOWN_ISSUES.md` | Known issues, edge cases, mitigation strategies, and resolved bug histories | Before investigating anomalies or reporting new defects |
 | **28** | `28_COMPLETION_EVIDENCE.md` | Executable verification evidence, gate-by-gate test results, and sign-off criteria | To verify that all quality gates pass before declaring any engineering phase complete |
+| **29** | `29_CONFIGURATION_SSOT_AND_METADATA_ARCHITECTURE.md` | Phase 2 Dynamic Configuration SSOT, Department Hierarchy, Metadata Reports, Versioning & REST API | When working on enterprise configuration, department restructuring, report metadata, or versioning |
 
 ---
 
