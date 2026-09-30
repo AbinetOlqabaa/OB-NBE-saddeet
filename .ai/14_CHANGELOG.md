@@ -4,6 +4,226 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [8.0.0-phase8-configuration-governance-versioning-rollback] - 2026-09-30
+
+### Added
+- **Configuration Governance & Versioning Engine (`src/services/configurationGovernanceService.ts`, `08_CONFIGURATION_GOVERNANCE_VERSIONING_ROLLBACK.md`)**:
+  - Full controlled lifecycle: `Draft → Validate → Impact Analysis → Dual Review/Approval → Publish → Effective → Audit`.
+  - Four-tier risk classification engine:
+    - `CRITICAL`: Role permissions, RBAC authorization, statutory return deletion.
+    - `HIGH`: Mathematical formula alteration, field deletion, department restructuring, workflow alteration, and rollbacks.
+    - `MEDIUM`: Description updates, optional field additions, non-critical assignments.
+    - `LOW`: Cosmetic notes, display order adjustments. Auto-approval permitted.
+  - Multi-domain impact analysis identifying affected:
+    - Users (by report duty, department membership, and compliance supervisory responsibilities).
+    - Departments (primary owners and contributing linked departments).
+    - Reports (return keys, frequencies, formulas, and dependent schedules).
+    - Workflows (submission review steps and role requirements).
+    - Permissions (modified roles and authorization matrix).
+    - Active and historical submissions (drafts, pending review, approved, sent), with explicit non-repudiation guarantees.
+  - Credential and secret sanitization (`sanitizeGovernanceState`): Deep recursive scrubbing of passwords, tokens, API keys, hashes, and PINs to `[REDACTED_FOR_SECURITY]` in all before/after states.
+  - Segregation of duties & 4-eyes rule enforcement:
+    - Strict prohibition: Proposer cannot approve their own high-impact configuration proposal (`SEGREGATION_OF_DUTIES_VIOLATION`).
+    - Review restricted strictly to authorized `ADMIN` or `CHECKER` roles (`UNAUTHORIZED_APPROVAL`).
+  - Optimistic concurrency locking & collision prevention:
+    - Automatic version tracking (`expectedEntityVersion` and config hash) prevents administrators from silently overwriting each other's changes (`CONCURRENCY_CONFLICT`, HTTP 409).
+  - Controlled governed rollback:
+    - A rollback is a new auditable change; past versions and historical submissions are NEVER rewritten or lost.
+    - Rollback creates a new version snapshot (Version N+1) reproducing the target historical schema.
+  - Material change user notifications:
+    - Users affected by material configuration changes receive targeted notifications detailing risk level, effective date, and impact rationale.
+  - Phase 8 Completion Gate: Official audit explanation engine (`explainChange`):
+    - Explains who changed what, when, from what, to what, under which approval/workflow, when it became effective, and what it affected.
+- **Native ConfigService Rollback Integration (`src/services/configService.ts`)**:
+  - `rollbackReportVersion(returnKey, targetVersionNumber, actor, reason)` safely recreates target schema as Version N+1 with permanent audit recording.
+- **Frontend Governance Component (`src/components/ConfigurationGovernanceView.tsx`)**:
+  - Rich split-pane workspace with proposal search, multi-level filters, 7-step visual lifecycle stepper, dependency impact cards, sanitized before/after diff table, 4-eyes review approval modal, rejection dialog, rollback modal with version picker, and the official "Explain Change" inspection modal.
+  - Embedded into `src/components/AdminDashboard.tsx` under the **Governance & Versioning** tab.
+  - Embedded into `src/components/ChangeHistoryView.tsx` with a top view-mode selector (**Governed Proposals & Approvals**).
+- **Server REST API Endpoints (`server.ts`)**:
+  - `/api/governance/proposals` (GET, POST)
+  - `/api/governance/proposals/:id` (GET)
+  - `/api/governance/proposals/:id/validate` (POST)
+  - `/api/governance/proposals/:id/approve` (POST)
+  - `/api/governance/proposals/:id/reject` (POST)
+  - `/api/governance/proposals/:id/publish` (POST)
+  - `/api/governance/proposals/rollback` (POST)
+  - `/api/governance/proposals/:id/explain` (GET)
+  - `/api/governance/notifications` (GET)
+  - `/api/governance/notifications/:id/read` (POST)
+- **Comprehensive Automated Test Suite (`src/tests/configuration-governance-versioning.test.ts`)**:
+  - 11 test sections (57 assertions, 100% pass) verifying secret sanitization, risk classification, impact analysis, structural validation, segregation of duties, optimistic concurrency collisions, publication, rejection, rollback, and the official audit explanation completion gate.
+
+---
+
+## [7.0.0-phase7-real-time-ssot-synchronization] - 2026-09-30
+
+### Added
+- **Authoritative Real-Time SSOT Engine (`src/services/realtimeSsotEngine.ts`, `server.ts`, `07_REAL_TIME_SSOT_SYNCHRONIZATION.md`)**:
+  - WebSocket (`/ws/ssot`) + SSE (`/api/config/events`) real-time communication pipeline strictly anchored to Django/database SSOT authority.
+  - Zero simulated timers or synthetic pollers; state changes propagate purely on committed transactional mutations.
+  - Monotonic event sequence counter (`sequenceNumber`) and UUID generation (`eventId`) with 1,000-event circular replay buffer.
+  - Comprehensive event taxonomy: `USER_CHANGED`, `DEPARTMENT_CHANGED`, `REPORT_CHANGED`, `ASSIGNMENT_CHANGED`, `SPECIAL_ACCESS_CHANGED`, `WORKFLOW_STATUS_CHANGED`, `CONFIG_SYNC_TRIGGER`.
+  - Sensitive credential scrubbing: Automatic removal of `password`, `passwordHash`, `token`, and auth headers from event payloads.
+  - Fine-grained topic subscription authorization (RBAC):
+    - `ADMIN:CONFIG` & `ADMIN:USERS`: Strict Admin-only access.
+    - `USER:<id>`: Strict individual officer isolation.
+    - `DEPT:<id>`: Department members and authorized multi-department delegates.
+    - `AUDIT:EVENTS`: Auditor and Admin inspection feed.
+    - `GLOBAL` & `REPORTS`: Authenticated bank officer broad catalog updates.
+- **Client Synchronization Service (`src/services/realtimeSsotClient.ts`)**:
+  - Dual WebSocket + SSE failover transport.
+  - Connection lifecycle management: Auto-reconnect with exponential backoff (`1s` to `30s`) and random jitter, heartbeat keep-alive (`30s`), and connection state broadcasting.
+  - Reconnect gap recovery: Transmits `SYNC_REQUEST` on connect; replays missed events or issues `REVALIDATE_ALL` if gap exceeds buffer.
+  - Message deduplication: 1,000-entry LRU cache to eliminate duplicate event handling.
+- **Surgical React State Invalidation Hook (`src/hooks/useRealtimeSSOT.ts`)**:
+  - Domain-specific invalidation listeners preserving mounted React component state and active user input in draft forms.
+- **Authoritative Service Integrations**:
+  - Connected `configService`, `userService`, `submissionService`, and `effectiveAccessEngine` to broadcast events upon successful committed mutations.
+- **Comprehensive Automated Test Suite (`src/tests/realtime-ssot-synchronization.test.ts`)**:
+  - 9 automated test scenarios covering Admin changes, assignment changes, report publishing, special access revocation, reconnect & gap replay, duplicate event discarding, stale cache revalidation, RBAC topic scoping, and atomic rollback safety.
+  - Integrated into `src/tests/run-all-tests.ts` with 19/19 test suites passing (100% success).
+
+---
+
+## [6.0.0-phase6-safe-bulk-operations-import-export-and-file-workflows] - 2026-09-30
+
+### Added
+- **Authoritative Bulk Operations Engine (`src/services/bulkOperationsEngine.ts`, `06_BULK_OPERATIONS_IMPORT_EXPORT.md`)**:
+  - Full transactional, auditable bulk management engine across Users, Departments, Reports, Submissions, and Special Access Grants.
+  - **Mandatory Workflow**: `Select/upload → parse → validate → detect conflicts → preview → explicit confirmation → transactional execution → audit → result report`.
+  - **Zero-Mutation Dry-Run Guarantee**: File uploads and parsing generate structured preview dry runs (`dryRunId`) with 15-minute TTL without mutating any underlying database or state.
+  - **Conflict Strategies**: Configurable resolution modes: `UPDATE` (merge/update existing), `SKIP` (preserve existing, create new only), and `FAIL_ON_CONFLICT` (strictly reject batches containing duplicate identifiers).
+  - **Deep Data Validation**: Required column checks, type validations, RFC 5322 email formatting, unique employee IDs and department short codes, valid organizational units, and batch-level duplicate detection.
+  - **Atomic Transaction & Snapshot Rollback**: Pre-execution snapshots captured prior to mutations. If any row encounters an error in `ATOMIC` mode, the entire batch automatically reverts to the pristine snapshot and seals a `BULK_OPERATION_ROLLBACK` event in the audit trail.
+  - **Partial Success Mode**: `PARTIAL` mode applies valid rows while recording exact row-level failures with actionable remediation notes.
+  - **Formula Injection (CSV Injection / CWE-1236) Protection**: Neutralizes dynamic formula/DDE execution payloads starting with `=`, `+`, `-`, `@`, `\t`, `\r` by automatically prefixing single quotes on exports and parsed inputs.
+  - **Oversized & Malicious File Protection**: Hard 5,000 row limits, payload sanitization, path traversal defense, and format enforcement (`CSV`, `JSON`, `XLSX`).
+  - **Zero-Bypass Authorization & Privilege Escalation Checks**: Non-admins (Makers, Checkers, Auditors) are strictly barred from performing user/department bulk administration (`HTTP 403`). Protection prevents unauthorized promotion to `ADMIN` and prevents demotion or deactivation of the primary compliance administrator (`usr_admin_1`).
+  - **Authorized Exports with Immutable Auditing**: Role- and department-filtered exports for Users, Departments, Reports, and Submissions in CSV, JSON, and XLSX formats with comprehensive audit logging.
+- **Enterprise Bulk Operations Modal (`src/components/BulkOperationsModal.tsx`)**:
+  - 4-step wizard interface: (1) Configure & Upload, (2) Validate & Preview with metric cards and paginated row-diff inspection, (3) Explicit Confirmation with legal/regulatory checkbox, and (4) Transactional Execution with full outcome breakdown.
+- **Admin Dashboard Integration (`src/components/AdminDashboard.tsx`)**:
+  - Multi-select row checkboxes with "Select All Visible" header checkbox.
+  - Floating Bulk Action Ribbon when users are selected: Activate, Deactivate (preserving historical reporting links), Reassign Department dialog, Assign Role dialog, Export Selected, and Clear Selection.
+  - Top action toolbar button: "Bulk Import & Ops" and direct export buttons.
+- **Department & Report Studio Integration (`src/components/DepartmentReportManagement.tsx`)**:
+  - Upgraded Bulk Import to the transactional `BulkOperationsModal`.
+- **Server REST API Endpoints (`server.ts`)**:
+  - `POST /api/bulk/dry-run`: Dry-run validation preview.
+  - `GET /api/bulk/dry-run/:dryRunId`: Retrieve cached dry-run with custom pagination.
+  - `POST /api/bulk/execute`: Explicit transactional execution with mode and confirmation.
+  - `POST /api/bulk/users/action`: Multi-select user actions (activate, deactivate, department, role, report assignment, special access).
+  - `POST /api/bulk/reports/action`: Bulk report actions (retirement, activation, department linkage).
+  - `POST /api/bulk/export`: Authorized and audited CSV/JSON/XLSX export.
+- **Comprehensive Automated Test Suite (`src/tests/phase6-bulk-operations.test.ts`)**:
+  - 12-section test coverage: formula injection, zero-mutation dry-run, explicit confirmation, conflict strategies (UPDATE, SKIP, FAIL), invalid data rejection, privilege escalation and root admin protection, atomic transaction rollback to pristine state, partial success mode, bulk multi-select user operations, report retirement preservation, authorized exports, and large dataset pagination (100% pass).
+
+---
+
+## [5.0.0-phase5-user-department-report-role-relationship-engine] - 2026-09-30
+
+### Added
+- **Authoritative Relationship & Effective-Access Engine (`src/services/effectiveAccessEngine.ts`, `.ai/05_USER_DEPARTMENT_REPORT_RELATIONSHIP_ENGINE.md`)**:
+  - Centralized, server-enforced relationship and access policy layer connecting `User ↔ Role ↔ Department ↔ Report ↔ Special Access ↔ Workflow State`.
+  - Authoritative effective-access derivation formula evaluating: Role, Account Status (`ACTIVE`, `PENDING_APPROVAL`, `DISABLED`, `SUSPENDED`), Department boundary, dynamic M:N linkages, Direct User-Report Assignments, Special Access Grants, Segregation of Duties (4-eyes dual control), and Temporal constraints.
+  - Role Separation Policy:
+    - **Maker**: Authorized report entry, draft editing, formula execution, submission to Checker, and final NBE transmission of approved returns. Blocked from review sign-off and administrative governance.
+    - **Checker**: Authorized 4-eyes review, correction requests, approvals, and rejections within department boundary. Prohibited from editing draft numbers, self-review, and final NBE delivery.
+    - **Auditor**: Authorized supervisory examination, finding creation, evidence attachment, and report package export across all 24 returns. Strictly prohibited from preparing drafts, editing figures, or approving returns.
+    - **Administrator**: Authorized user and department governance, special access delegation, SSOT configuration, and simulator control. Strictly restricted to read-only compliance oversight on report data; cannot mutate return figures or sign off.
+- **Direct User ↔ Report Assignments Without Code Modification**:
+  - Administrators can directly assign reports to individual officers via `effectiveAccessEngine.assignReportToUser(userId, reportKey, adminName)`.
+  - Immediate operational permission granted without code change or home department alteration.
+  - Revocation via `removeReportFromUser` immediately restores department boundary.
+- **Controlled Special Access Grants**:
+  - Full support for `REPORT`, `DEPARTMENT`, `MULTI_DEPARTMENT`, and `ALL_REPORTS` scopes.
+  - Mandatory compliance justification reason recorded on all grants.
+  - Future scheduling (`effectiveFrom`), time-bound expiration (`expiresAt`), administrative revocation (`revoked`, `revokedAt`, `revokedBy`), and non-repudiation audit trail.
+- **Sub-Millisecond Authorization Caching & Real-Time Invalidation**:
+  - Deterministic cache keyed by user identity, role, department, grants hash, report key, action, and submission state.
+  - Automated invalidation hooks tied to role changes, department changes/restructuring, assignment additions/removals, special access grants/revocations, and SSOT report retirement.
+- **Direct Server REST API Endpoints (`server.ts`)**:
+  - `POST /api/access/evaluate`: Central authoritative access evaluation for any operation.
+  - `GET /api/access/matrix/:userId`: Full 24-report effective permissions matrix for a user.
+  - `GET /api/access/user-assignments/:userId`, `POST /api/access/user-assignments`, `DELETE /api/access/user-assignments`: Direct user-report assignment management.
+  - `POST /api/access/cache/invalidate`: Explicit authorization cache purge.
+- **Comprehensive Automated Test Matrix (`src/tests/relationship-effective-access-engine.test.ts`)**:
+  - 10-part comprehensive verification covering: all 4 roles, same vs different departments, direct user-report assignments, special access scopes, expired grants, revoked grants, account statuses, retired reports, 4-eyes segregation of duties, and cache invalidation.
+  - Integrated into `src/tests/run-all-tests.ts` (17/17 test suites passing cleanly with 100% success).
+
+---
+
+## [4.0.0-phase4-dynamic-report-definition-and-template-management] - 2026-09-30
+
+### Added
+- **Metadata-Driven Report Definition Engine (`src/services/configService.ts`, `server.ts`)**:
+  - Full metadata representation of bank regulatory returns: ReturnKey, short code, title, description, category, frequency (`MONTHLY`, `QUARTERLY`, `ANNUAL`, `ON_DEMAND`), institution code, financial year, and department ownership.
+  - Granular schema definition: sections (title, code, repeating flags), return balance fields (data types, required status, calculated flags, formulas), dynamic schedule columns (column keys, header labels, widths, data types, required constraints), rows, and central bank NBE mapping.
+  - Formula dependency engine and cycle detection: Topological DFS graph analysis validates calculation expressions and catches circular formula dependencies before publishing.
+  - Field code uniqueness validation: Checks all balance field item codes and schedule column keys across the schema to prevent ambiguity.
+  - REST endpoints for report lifecycle: `POST /api/config/reports` (create), `PUT /api/config/reports/:key` (update metadata), `POST /api/config/reports/:key/retire` (retire), `POST /api/config/reports/:key/versions/draft` (create draft version), `PUT /api/config/reports/:key/versions/:version` (update draft), `POST /api/config/reports/:key/versions/:version/validate` (validate version), `GET /api/config/reports/:key/versions/:version/preview` (preview metadata), `POST /api/config/reports/:key/versions/:version/publish` (publish active version).
+- **Immutable Versioning Lifecycle (Draft → Validate → Preview → Publish → Active → Retired)**:
+  - Non-destructive evolution: Existing published versions used by historical submissions are strictly preserved and never mutated.
+  - Draft state: Working drafts can be saved and edited iteratively without affecting active reporting.
+  - Validation: Structural integrity, unique field codes, formula dependencies, and cycle detection.
+  - Preview: Live schema conversion to `ReportMetadata` preview format for inspection before publishing.
+  - Authoritative publishing: Transitions the target version to `ACTIVE`, supersedes the previous active version with an `effectiveTo` timestamp, and immediately syncs the active regulatory catalog.
+  - Safe retirement: Marks obsolete returns as `RETIRED` with statutory reasoning, archiving them while preserving past submissions for audit.
+- **Administrator Template Studio UX (`src/components/ReportTemplateStudioModal.tsx`, `src/components/DepartmentReportManagement.tsx`)**:
+  - Multi-tab studio: Metadata, Sections, Fields, Columns, Formulas, Validation, Preview, Publish.
+  - Visual field editor, column editor, section editor, and formula builder.
+  - Real-time DFS cycle detection and structural validation feedback.
+  - Version history comparison modal (`ReportVersionHistoryModal.tsx`) showing field-by-field deltas and changelog records.
+  - M:N department linkage management integrated with bank organizational structure.
+- **Dynamic Forms & Submission Reproducibility Integration (`src/components/DynamicReportForm.tsx`, `src/services/submissionService.ts`, `src/services/nbeAdapter.ts`)**:
+  - `submissionService.createSubmission` automatically queries `configService` to stamp the current active `templateVersion` and seals an immutable `templateSnapshot`.
+  - `DynamicReportForm.tsx` dynamically renders sections, fields, and dynamic schedules using the submission's `templateSnapshot`.
+  - Historical submissions remain frozen to their original template schema, while new submissions consume the latest published version.
+  - Maker-Checker-Auditor segregation of duties fully maintained across all dynamic returns.
+  - `NBEAdapter.buildNBEPayload` canonically translates dynamic metadata returns into the central bank BSD payload format (`ReturnItemsList`, `DynamicItemsList`).
+- **Comprehensive Automated Test Suite (`src/tests/dynamic-report-definition.test.ts`)**:
+  - 10-part automated test suite validating: 24 NBE preservation, metadata creation, cycle detection DFS, preview, publish, version bump (V1->V2), immutability, dual-template reproducibility, Auditor inspection, NBE payload, safe retirement.
+  - Integrated into `src/tests/run-all-tests.ts` (16/16 test suites passing cleanly with 100% success).
+
+---
+
+## [3.0.0-phase3-admin-users-and-departments] - 2026-09-30
+
+### Added
+- **Administrator User Management Subsystem (`src/services/userService.ts`, `server.ts`, `src/components/AdminDashboard.tsx`)**:
+  - Full CRUD and lifecycle management for bank user accounts: Administrator, Maker, Checker, and Auditor.
+  - Server-side role enforcement on `POST /api/users`, `PUT /api/users/:id`, `POST /api/users/:id/status`, and `DELETE /api/users/:id` ensuring only callers with `ADMIN` role can mutate users.
+  - First-class support for `AUDITOR` creation with specific statutory scope (`auditScope`) and formal appointment justification (`auditorJustification`).
+  - Search, filter (by role, status, department), multi-column sorting (name, email, role, department, status, creation date), and standalone pagination contract (`page`, `page_size`, `limit`).
+  - Single User Inspector (`GET /api/users/:id`) returning full profile, credentials overview, and linked department.
+  - Dynamically resolved reporting authorization matrix (`GET /api/users/:id/authorized-reports`) computed from authoritative `configService` SSOT.
+  - Special cross-department delegation access grants (`POST /api/users/:id/special-access`) for specific returns or multi-department assignments.
+  - User-specific audit history compilation (`GET /api/users/:id/audit`).
+  - Pre-flight historical safety checks (`GET /api/users/:id/can-delete` / `canDeleteUser`) preventing destructive deletion of users referenced in past statutory submissions.
+- **Administrator Department Management Subsystem (`src/services/departmentService.ts`, `src/services/configService.ts`, `server.ts`, `src/components/AdminDashboard.tsx`)**:
+  - Full management of bank organizational structure: create, edit, rename, code/description validation, and parent-child hierarchy.
+  - Lifecycle statuses (`ACTIVE`, `INACTIVE`, `RESTRUCTURED`, `PLANNED`) and effective date management (`effectiveFrom`, `effectiveTo`).
+  - SSOT synchronization: changes made in `departmentService` are immediately synced with `configService.createDepartment` and `configService.updateDepartment`.
+  - Department inspection (`GET /api/departments/:id`) providing hierarchy ancestors, descendant units, assigned user rosters, and submission statistics.
+  - Department configuration audit trail (`GET /api/departments/:id/audit`).
+  - Pre-flight historical safety checks (`GET /api/departments/:id/can-delete` / `canDeleteDepartment`) blocking destructive deletion of departments referenced by historical reports or active assigned officers.
+- **Administrator UX Enhancements (`src/components/AdminDashboard.tsx`)**:
+  - Sub-tab navigation: Reports Oversight, Special Access & Delegation, Pending Authorizations, User Accounts & RBAC, Departments & Structure, Directives & Role Matrix.
+  - Custom responsive modals:
+    - `CreateUserModal`: Direct provisioning of officers with role selector and conditional Auditor scope inputs.
+    - `UserInspectorModal`: Detailed profile card, dynamic authorized returns list, special access grants, and audit activity history.
+    - `CreateDepartmentModal`: Operational unit creation with division, parent department, responsibilities, and statutory returns multi-selection.
+    - `EditDepartmentModal`: In-place editing of responsibilities, hierarchy, and retirement dates.
+    - `DepartmentInspectorModal`: Hierarchy tree position, live statistics cards, assigned officers list, and configuration audit trail.
+    - `HistoricalSafetyNoticeModal`: NBE-grounded modal explaining why destructive deletion was blocked and offering non-destructive deactivation (`DISABLED`/`INACTIVE`).
+    - `DeleteConfirmationModal`: Permanent deletion dialog for verified safe entities.
+- **Automated Verification & Regression Suite (`src/tests/phase3-admin-users-departments.test.ts`)**:
+  - Comprehensive automated tests covering user CRUD, role transitions, Auditor scopes, dynamic report authorization, user audit trail, user historical safety pre-flights, department creation/editing/hierarchy, lifecycle transitions, and department historical safety pre-flights.
+  - Integrated into `src/tests/run-all-tests.ts`.
+
+---
+
 ## [2.0.0-phase2-dynamic-configuration-ssot] - 2026-09-30
 
 ### Added

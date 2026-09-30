@@ -11,6 +11,9 @@ import {
 } from '../data/organizationHierarchy.ts';
 import { departmentService } from './departmentService.ts';
 import { getAllReports } from '../data/report-registry.ts';
+import { auditService } from './auditService.ts';
+import { effectiveAccessEngine } from './effectiveAccessEngine.ts';
+import { realtimeSsotEngine } from './realtimeSsotEngine.ts';
 
 export type UserRole = 'ADMIN' | 'MAKER' | 'CHECKER' | 'AUDITOR';
 export type UserStatus = 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED';
@@ -683,8 +686,23 @@ class UserServiceClass {
       user.approvedAt = new Date().toISOString();
       user.approvedBy = `${adminName} (ADMIN)`;
     }
+    effectiveAccessEngine.invalidateUser(userId);
 
     const { password, ...safe } = user;
+
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'USER_CHANGED',
+        action: 'STATUS_CHANGE',
+        domain: 'USER',
+        entityId: user.id,
+        topic: `USER:${user.id}`,
+        actor: { id: 'usr_admin', name: adminName, role: 'ADMIN' },
+        summary: `User ${user.email} status changed to ${status}`,
+        payload: { userId: user.id, status, role: user.role, department: user.department },
+      });
+    } catch (_) {}
+
     return { success: true, user: safe as UserAccount };
   }
 
@@ -695,9 +713,124 @@ class UserServiceClass {
     return this.updateUserStatus(userId, 'ACTIVE', adminName);
   }
 
+  public createUser(
+    data: {
+      name: string;
+      email: string;
+      role: UserRole;
+      department: string;
+      employeeId?: string;
+      phoneNumber?: string;
+      password?: string;
+      status?: UserStatus;
+      auditorJustification?: string;
+      auditScope?: string;
+    },
+    adminName = 'System Administrator'
+  ): { success: boolean; user?: UserAccount; message?: string } {
+    if (!data.name || !data.name.trim()) {
+      return { success: false, message: 'Full name is required.' };
+    }
+    if (!data.email || !data.email.trim()) {
+      return { success: false, message: 'Corporate email address is required.' };
+    }
+    const emailNorm = data.email.trim().toLowerCase();
+    if (this.getByEmail(emailNorm)) {
+      return { success: false, message: `An account with email '${emailNorm}' already exists.` };
+    }
+    if (!['ADMIN', 'MAKER', 'CHECKER', 'AUDITOR'].includes(data.role)) {
+      return { success: false, message: 'Valid role (ADMIN, MAKER, CHECKER, AUDITOR) is required.' };
+    }
+    if (!data.department || !data.department.trim()) {
+      return { success: false, message: 'Department assignment is required.' };
+    }
+
+    const id = `usr_${data.role.toLowerCase()}_${Date.now()}_${Math.floor(10 + Math.random() * 90)}`;
+    const now = new Date().toISOString();
+    const newUser: UserAccount = {
+      id,
+      name: data.name.trim(),
+      email: emailNorm,
+      password: data.password || 'password',
+      role: data.role,
+      status: data.status || 'ACTIVE',
+      institutionCode: '0000013',
+      department: data.department.trim(),
+      employeeId: data.employeeId?.trim() || `OB-${data.role.substring(0, 3)}-${Math.floor(100 + Math.random() * 900)}`,
+      phoneNumber: data.phoneNumber?.trim() || '',
+      specialAccessGrants: [],
+      createdAt: now,
+      approvedAt: (data.status || 'ACTIVE') === 'ACTIVE' ? now : undefined,
+      approvedBy: (data.status || 'ACTIVE') === 'ACTIVE' ? `${adminName} (ADMIN)` : undefined,
+      auditorJustification: data.role === 'AUDITOR' ? data.auditorJustification : undefined,
+      auditScope: data.role === 'AUDITOR' ? (data.auditScope || 'ALL_DEPARTMENTS') : undefined,
+      biometricCredentials: [],
+    };
+
+    this.users.set(id, newUser);
+
+    const { password, ...safe } = newUser;
+
+    auditService.log({
+      actorId: 'usr_admin',
+      actorName: adminName,
+      actorRole: 'ADMIN',
+      action: 'USER_CREATED',
+      entityType: 'USER',
+      entityId: newUser.id,
+      correlationId: `corr_usr_create_${newUser.id}`,
+      details: `Administrator created user account for ${newUser.name} (${newUser.email}) with role ${newUser.role} in department ${newUser.department}.`,
+      newState: safe,
+    });
+
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'USER_CHANGED',
+        action: 'CREATE',
+        domain: 'USER',
+        entityId: newUser.id,
+        topic: 'ADMIN:CONFIG',
+        actor: { id: 'usr_admin', name: adminName, role: 'ADMIN' },
+        summary: `User account created for ${newUser.name} (${newUser.email}) [${newUser.role}]`,
+        payload: { userId: newUser.id, email: newUser.email, role: newUser.role, department: newUser.department, status: newUser.status },
+      });
+    } catch (_) {}
+
+    return {
+      success: true,
+      user: safe as UserAccount,
+      message: `User '${newUser.name}' (${newUser.role}) created successfully.`,
+    };
+  }
+
+  private submissionProvider?: {
+    getAll: () => Array<{
+      makerId?: string;
+      checkerId?: string;
+      makerName?: string;
+      checkerName?: string;
+      makerEmail?: string;
+      checkerEmail?: string;
+    }>;
+  };
+
+  public setSubmissionProvider(provider: {
+    getAll: () => Array<{
+      makerId?: string;
+      checkerId?: string;
+      makerName?: string;
+      checkerName?: string;
+      makerEmail?: string;
+      checkerEmail?: string;
+    }>;
+  }): void {
+    this.submissionProvider = provider;
+  }
+
   public updateUser(
     userId: string,
-    updates: Partial<UserAccount>
+    updates: Partial<UserAccount>,
+    adminName: string = 'Administrator'
   ): { success: boolean; user?: UserAccount; message?: string } {
     const user = this.users.get(userId);
     if (!user) {
@@ -707,30 +840,178 @@ class UserServiceClass {
     if (updates.name) user.name = updates.name.trim();
     if (updates.department) user.department = updates.department.trim();
     if (updates.employeeId) user.employeeId = updates.employeeId.trim();
-    if (updates.phoneNumber) user.phoneNumber = updates.phoneNumber.trim();
-    if (updates.role && ['ADMIN', 'MAKER', 'CHECKER'].includes(updates.role)) {
+    if (updates.phoneNumber !== undefined) user.phoneNumber = updates.phoneNumber.trim();
+    if (updates.role && ['ADMIN', 'MAKER', 'CHECKER', 'AUDITOR'].includes(updates.role)) {
       user.role = updates.role;
     }
     if (updates.status && ['ACTIVE', 'PENDING_APPROVAL', 'DISABLED'].includes(updates.status)) {
       user.status = updates.status;
     }
+    if (updates.auditorJustification !== undefined) {
+      user.auditorJustification = updates.auditorJustification;
+    }
+    if (updates.auditScope !== undefined) {
+      user.auditScope = updates.auditScope;
+    }
 
     const { password, ...safe } = user;
+    effectiveAccessEngine.invalidateUser(user.id);
+
+    auditService.log({
+      actorId: 'usr_admin',
+      actorName: adminName,
+      actorRole: 'ADMIN',
+      action: 'USER_UPDATED',
+      entityType: 'USER',
+      entityId: user.id,
+      correlationId: `corr_usr_upd_${user.id}_${Date.now()}`,
+      details: `User account details updated for ${user.name} (${user.email}) [Role: ${user.role}, Dept: ${user.department}].`,
+      newState: safe,
+    });
+
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'USER_CHANGED',
+        action: 'UPDATE',
+        domain: 'USER',
+        entityId: user.id,
+        topic: `USER:${user.id}`,
+        actor: { id: 'usr_admin', name: adminName, role: 'ADMIN' },
+        summary: `User details updated for ${user.name} (${user.email})`,
+        payload: { userId: user.id, role: user.role, department: user.department, status: user.status },
+      });
+    } catch (_) {}
+
     return { success: true, user: safe as UserAccount };
   }
 
-  public deleteUser(userId: string): { success: boolean; message?: string } {
+  /**
+   * Pre-flight safety check determining whether an entity can be destructively removed,
+   * or whether historical reporting references prohibit true deletion under NBE compliance rules.
+   */
+  public canDeleteUser(userId: string): {
+    canDelete: boolean;
+    reason?: string;
+    submissionsCount?: number;
+    user?: UserAccount;
+  } {
     const user = this.users.get(userId);
     if (!user) {
-      return { success: false, message: 'User not found.' };
+      return { canDelete: false, reason: 'User account not found.' };
     }
-
     if (user.role === 'ADMIN' && user.id === 'usr_admin_1') {
-      return { success: false, message: 'Cannot delete the primary System Administrator account.' };
+      return { canDelete: false, reason: 'Cannot delete the primary System Administrator governance account.' };
     }
 
+    // Historical Safety Check: inspect statutory submissions authored or checked by this user
+    if (this.submissionProvider && typeof this.submissionProvider.getAll === 'function') {
+      const allSubs = this.submissionProvider.getAll();
+      const userSubs = allSubs.filter(
+        (s: any) =>
+          s.makerId === user.id ||
+          s.checkerId === user.id ||
+          s.makerName === user.name ||
+          s.checkerName === user.name ||
+          (s.makerEmail && s.makerEmail.toLowerCase() === user.email.toLowerCase())
+      );
+      if (userSubs.length > 0) {
+        return {
+          canDelete: false,
+          submissionsCount: userSubs.length,
+          user,
+          reason: `Historical safety violation: User "${user.name}" is referenced in ${userSubs.length} statutory report submission(s). NBE regulatory retention and non-repudiation directives prohibit destructive deletion. Please deactivate (set status to 'DISABLED') instead to preserve historical integrity.`,
+        };
+      }
+    }
+
+    return { canDelete: true, user };
+  }
+
+  public deleteUser(userId: string): { success: boolean; message?: string } {
+    const check = this.canDeleteUser(userId);
+    if (!check.canDelete) {
+      return { success: false, message: check.reason };
+    }
+
+    const targetUser = this.users.get(userId);
     this.users.delete(userId);
-    return { success: true, message: 'User account removed.' };
+    effectiveAccessEngine.invalidateUser(userId);
+
+    auditService.log({
+      actorId: 'usr_admin',
+      actorName: 'Administrator',
+      actorRole: 'ADMIN',
+      action: 'USER_DELETED',
+      entityType: 'USER',
+      entityId: userId,
+      correlationId: `corr_usr_del_${userId}_${Date.now()}`,
+      details: `User account ${targetUser?.name || userId} permanently removed from registry.`,
+    });
+
+    return { success: true, message: 'User account permanently removed.' };
+  }
+
+  public getFilteredUsers(filter?: {
+    search?: string;
+    role?: string;
+    status?: string;
+    department?: string;
+    sortBy?: 'name' | 'email' | 'role' | 'department' | 'status' | 'createdAt' | 'lastLoginAt';
+    sortOrder?: 'asc' | 'desc';
+  }): UserAccount[] {
+    let list = this.getAll();
+    if (filter?.role && filter.role !== 'ALL') {
+      list = list.filter((u) => u.role === filter.role);
+    }
+    if (filter?.status && filter.status !== 'ALL') {
+      list = list.filter((u) => u.status === filter.status);
+    }
+    if (filter?.department && filter.department !== 'ALL') {
+      const targetDept = filter.department.toLowerCase().trim();
+      list = list.filter((u) => u.department.toLowerCase().trim() === targetDept);
+    }
+    if (filter?.search && filter.search.trim()) {
+      const q = filter.search.toLowerCase().trim();
+      list = list.filter(
+        (u) =>
+          u.name.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q) ||
+          u.employeeId.toLowerCase().includes(q) ||
+          u.department.toLowerCase().includes(q) ||
+          (u.phoneNumber && u.phoneNumber.toLowerCase().includes(q))
+      );
+    }
+    if (filter?.sortBy) {
+      const key = filter.sortBy;
+      const order = filter.sortOrder === 'desc' ? -1 : 1;
+      list.sort((a, b) => {
+        const valA = (a as any)[key] || '';
+        const valB = (b as any)[key] || '';
+        if (typeof valA === 'string') {
+          return valA.localeCompare(String(valB)) * order;
+        }
+        return (valA > valB ? 1 : valA < valB ? -1 : 0) * order;
+      });
+    }
+    return list;
+  }
+
+  public getUserAuditHistory(userId: string): any[] {
+    const user = this.users.get(userId);
+    if (!user) return [];
+    const allLogs = auditService.getAll();
+    const userEmailNorm = user.email.toLowerCase();
+    const userNameNorm = user.name.toLowerCase();
+    return allLogs.filter(
+      (l: any) =>
+        l.actorId === user.id ||
+        (l.actorName && l.actorName.toLowerCase().includes(userNameNorm)) ||
+        l.entityId === user.id ||
+        (l.details &&
+          (l.details.toLowerCase().includes(userEmailNorm) ||
+            l.details.toLowerCase().includes(userNameNorm) ||
+            l.details.includes(user.id)))
+    );
   }
 
   // -------------------------------------------------------------
@@ -784,11 +1065,32 @@ class UserServiceClass {
     }
 
     user.specialAccessGrants.push(newGrant);
+    effectiveAccessEngine.onSpecialAccessChange(userId);
 
-    const { password, ...safe } = user;
     const targetLabel = grantData.reportKey
       ? `report ${grantData.reportKey}`
       : `department(s) ${targetDepts.join(', ')}`;
+
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'SPECIAL_ACCESS_CHANGED',
+        action: 'GRANTED',
+        domain: 'SPECIAL_ACCESS',
+        entityId: userId,
+        topic: `USER:${userId}`,
+        actor: { id: 'usr_admin', name: adminName, role: 'ADMIN' },
+        summary: `Special access granted to ${user.name} for ${targetLabel}`,
+        payload: {
+          grantId: newGrant.id,
+          userId,
+          reportKey: newGrant.reportKey,
+          department: newGrant.department,
+          expiresAt: newGrant.expiresAt,
+        },
+      });
+    } catch (_) {}
+
+    const { password, ...safe } = user;
     return {
       success: true,
       user: safe as UserAccount,
@@ -817,6 +1119,21 @@ class UserServiceClass {
       return { success: false, message: 'Grant ID not found on user.' };
     }
 
+    effectiveAccessEngine.onSpecialAccessChange(userId);
+
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'SPECIAL_ACCESS_CHANGED',
+        action: 'REVOKED',
+        domain: 'SPECIAL_ACCESS',
+        entityId: userId,
+        topic: `USER:${userId}`,
+        actor: { id: 'usr_admin', name: adminName, role: 'ADMIN' },
+        summary: `Special access grant revoked for ${user.name} by ${adminName}`,
+        payload: { grantId, userId },
+      });
+    } catch (_) {}
+
     const { password, ...safe } = user;
     return {
       success: true,
@@ -827,165 +1144,39 @@ class UserServiceClass {
 
   /**
    * Evaluates the complete set of report keys that this user is authorized to access.
-   * - ADMIN: returns all registered reports
-   * - MAKER / CHECKER:
-   *     1. All reports belonging to or linked to their home department
-   *     2. Any specific reportKey explicitly granted by Admin
-   *     3. All reports in any external department(s) explicitly granted by Admin
+   * Delegates to authoritative effectiveAccessEngine.
    */
   public getAllowedReportKeysForUser(user: UserAccount | UserSession): string[] {
-    if (user.role === 'ADMIN' || user.role === 'AUDITOR') {
-      return Array.from(new Set(getAllReports().map((r) => r.ReturnKey)));
-    }
-
-    const allowed = new Set<string>();
-
-    // 1. Home department reports
-    if (user.department) {
-      const deptReports = departmentService.getReportsForDepartment(user.department);
-      deptReports.forEach((k) => allowed.add(k));
-    }
-
-    // 2. Special access grants
-    const grants: SpecialAccessGrant[] =
-      (user as UserAccount).specialAccessGrants ||
-      (user as UserSession).specialAccessGrants ||
-      [];
-
-    const now = new Date();
-    for (const grant of grants) {
-      // Check expiration if present
-      if (grant.expiresAt) {
-        const exp = new Date(grant.expiresAt);
-        if (exp < now) continue;
-      }
-
-      if (grant.reportKey) {
-        allowed.add(grant.reportKey);
-      }
-      if (grant.department) {
-        const deptNames = grant.department.includes(',')
-          ? grant.department.split(',').map((s) => s.trim())
-          : [grant.department.trim()];
-        for (const d of deptNames) {
-          const extReports = departmentService.getReportsForDepartment(d);
-          extReports.forEach((k) => allowed.add(k));
-        }
-      }
-      if (Array.isArray(grant.departments)) {
-        for (const d of grant.departments) {
-          const extReports = departmentService.getReportsForDepartment(d);
-          extReports.forEach((k) => allowed.add(k));
-        }
-      }
-    }
-
-    return Array.from(allowed);
+    return effectiveAccessEngine.getAllowedReportKeysForUser(user);
   }
 
   /**
    * Verifies if a Maker is authorized to create/fill/submit a specific report.
+   * Delegates to authoritative effectiveAccessEngine.
    */
   public canMakerAccessReport(user: UserAccount | UserSession, reportKey: string): boolean {
-    if (user.role !== 'MAKER' && user.role !== 'ADMIN') return false;
-    const allowed = this.getAllowedReportKeysForUser(user);
-    return allowed.includes(reportKey);
+    return effectiveAccessEngine.evaluateAccess(user, reportKey, 'CREATE_DRAFT').allowed;
   }
 
   /**
-   * Verifies if a Checker can review a submission:
-   * Rule: The submission's report must be linked to the Checker's department,
-   * OR the Maker and Checker are from the same department,
-   * OR the Checker has been granted special cross-department access by the Admin.
+   * Verifies if a Checker can review a submission.
+   * Delegates to authoritative effectiveAccessEngine.
    */
   public canCheckerReviewSubmission(
     user: UserAccount | UserSession,
     submission: {
+      id?: string;
       department?: string;
       makerDepartment?: string;
+      makerId?: string;
+      status?: string;
       reportKey: string;
     }
   ): { allowed: boolean; reason?: string } {
-    if (user.role === 'ADMIN' || user.role === 'AUDITOR') {
-      // Admin and Auditor have independent oversight view but cannot sign off reviews
-      return {
-        allowed: false,
-        reason:
-          user.role === 'ADMIN'
-            ? 'Administrator has read-only compliance oversight. Review sign-off must be performed by an authorized Checker.'
-            : 'Auditor has independent supervisory oversight. Review sign-off must be performed by an authorized Checker.',
-      };
-    }
-
-    if (user.role !== 'CHECKER') {
-      return { allowed: false, reason: 'Only registered Checkers can perform 4-eyes reviews.' };
-    }
-
-    // Rule: Segregation of Duties - Maker cannot review or approve their own submission
-    if ((submission as any).makerId && user.id === (submission as any).makerId) {
-      return {
-        allowed: false,
-        reason: 'Segregation of duties violation: The Maker who created this submission cannot review or sign off on it as Checker.',
-      };
-    }
-
-    const subDept = submission.department || submission.makerDepartment || getDepartmentForReport(submission.reportKey);
-    const userDept = user.department;
-
-    // Rule 1: Same Department Check
-    if (userDept && subDept && userDept.trim().toLowerCase() === subDept.trim().toLowerCase()) {
-      return { allowed: true };
-    }
-
-    // Rule 1b: Check if the report is linked to the Checker's department (M:N relationship)
-    if (userDept) {
-      const linkedDepts = departmentService.getDepartmentsForReport(submission.reportKey);
-      if (linkedDepts.some((d) => d.toLowerCase() === userDept.toLowerCase())) {
-        return { allowed: true };
-      }
-    }
-
-    // Rule 2: Special Access Check
-    const grants: SpecialAccessGrant[] =
-      (user as UserAccount).specialAccessGrants ||
-      (user as UserSession).specialAccessGrants ||
-      [];
-
-    const now = new Date();
-    const subLinkedDepts = departmentService.getDepartmentsForReport(submission.reportKey);
-
-    for (const grant of grants) {
-      if (grant.expiresAt && new Date(grant.expiresAt) < now) continue;
-
-      if (grant.reportKey && grant.reportKey === submission.reportKey) {
-        return { allowed: true, reason: `Special Access granted by Admin: ${grant.reason}` };
-      }
-      if (grant.department) {
-        const deptNames = grant.department.includes(',')
-          ? grant.department.split(',').map((s) => s.trim().toLowerCase())
-          : [grant.department.trim().toLowerCase()];
-
-        if (
-          deptNames.includes(subDept.toLowerCase()) ||
-          subLinkedDepts.some((ld) => deptNames.includes(ld.toLowerCase()))
-        ) {
-          return { allowed: true, reason: `Cross-department review permission granted: ${grant.reason}` };
-        }
-      }
-      if (Array.isArray(grant.departments)) {
-        const grantDeptsNorm = grant.departments.map((d) => d.trim().toLowerCase());
-        if (
-          grantDeptsNorm.includes(subDept.toLowerCase()) ||
-          subLinkedDepts.some((ld) => grantDeptsNorm.includes(ld.toLowerCase()))
-        ) {
-          return { allowed: true, reason: `Cross-department review permission granted: ${grant.reason}` };
-        }
-      }
-    }
-
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, submission.reportKey, 'REVIEW', submission as any);
     return {
-      allowed: false,
-      reason: `Checker department (${userDept || 'Unassigned'}) does not match return department (${subDept}). Cross-department review requires Administrator authorization.`,
+      allowed: evalResult.allowed,
+      reason: evalResult.allowed ? undefined : evalResult.reason,
     };
   }
 
@@ -1031,3 +1222,4 @@ class UserServiceClass {
 }
 
 export const userService = new UserServiceClass();
+effectiveAccessEngine.setUserProvider(userService);

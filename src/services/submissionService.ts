@@ -24,7 +24,11 @@ import { nbeAdapter } from './nbeAdapter.ts';
 import type { DeliveryResult } from './nbeAdapter.ts';
 import { auditService } from './auditService.ts';
 import { userService } from './userService.ts';
+import { departmentService } from './departmentService.ts';
+import { configService } from './configService.ts';
 import { indexedDbStorage } from './indexedDbStorage.ts';
+import { effectiveAccessEngine } from './effectiveAccessEngine.ts';
+import { realtimeSsotEngine } from './realtimeSsotEngine.ts';
 
 // Default Demo User Accounts with verified Oromia Bank departments
 export const DEMO_USERS: UserSession[] = [
@@ -570,26 +574,22 @@ class SubmissionServiceClass {
    *    OR have been granted special access by the Administrator.
    */
   public createSubmission(reportKey: string, user: UserSession): ReportSubmission {
-    if (user.role !== 'MAKER') {
-      throw new Error(
-        `Role violation: Only registered Makers can create report drafts. Current role: ${user.role}`
-      );
-    }
-
     const report = getReportByKey(reportKey);
     if (!report) {
       throw new Error(`Report template not found for key: ${reportKey}`);
     }
 
-    const reportDept = report.department || getDepartmentForReport(report.ReturnKey);
-
-    // Verify Maker department / special access authorization
-    const isAuthorized = userService.canMakerAccessReport(user, report.ReturnKey);
-    if (!isAuthorized) {
-      throw new Error(
-        `Department restriction: Your department (${user.department || 'Unassigned'}) is not authorized to prepare return "${report.Title}" (${report.ReturnKey}). This return belongs to "${reportDept}". Contact Administrator for Special Cross-Department Access.`
-      );
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, report.ReturnKey, 'CREATE_DRAFT');
+    if (!evalResult.allowed) {
+      if (evalResult.code === 'ROLE_FORBIDDEN') {
+        throw new Error(
+          `Role violation: Only registered Makers can create report drafts. Current role: ${user.role}`
+        );
+      }
+      throw new Error(evalResult.reason);
     }
+
+    const reportDept = report.department || getDepartmentForReport(report.ReturnKey);
 
     const id = 'sub_' + reportKey.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
     const now = new Date().toISOString();
@@ -606,13 +606,15 @@ class SubmissionServiceClass {
 
     const templateSnapshot = this.createTemplateSnapshot(report);
     const structuralHash = this.generateStructuralHash(report);
+    const activeDef = configService.getReportDefinition(report.ReturnKey);
+    const activeTmplVersion = activeDef?.currentVersion || 1;
     const initialValuesCopy = JSON.parse(JSON.stringify(initialValues));
     const initialDynamicCopy = JSON.parse(JSON.stringify(initialDynamicRows));
     const integrityHash = this.computeIntegrityHash({
       id,
       reportKey: report.ReturnKey,
       version: 1,
-      templateVersion: 1,
+      templateVersion: activeTmplVersion,
       values: initialValuesCopy,
       status: 'DRAFT',
     });
@@ -620,7 +622,7 @@ class SubmissionServiceClass {
     const initialSnapshot: SubmissionSnapshot = {
       snapshotId: `snap_${id}_v1_${Date.now()}`,
       version: 1,
-      templateVersion: 1,
+      templateVersion: activeTmplVersion,
       dataVersion: 1,
       timestamp: now,
       status: 'DRAFT',
@@ -644,7 +646,7 @@ class SubmissionServiceClass {
       institutionCode: report.InstCode,
       status: 'DRAFT',
       version: 1,
-      templateVersion: 1,
+      templateVersion: activeTmplVersion,
       dataVersion: 1,
       templateSnapshot,
       dataSnapshot: initialValuesCopy,
@@ -767,14 +769,18 @@ class SubmissionServiceClass {
     dynamicRows: Record<number, DynamicRowRecord[]>,
     user: UserSession
   ): ReportSubmission {
-    if (user.role !== 'MAKER') {
-      throw new Error(
-        `Role violation: Only authorized Makers can edit report draft data. User role "${user.role}" is restricted from data modifications.`
-      );
-    }
-
     const sub = this.submissions.get(id);
     if (!sub) throw new Error(`Submission not found: ${id}`);
+
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, sub.reportKey, 'EDIT_DRAFT', sub);
+    if (!evalResult.allowed) {
+      if (evalResult.code === 'ROLE_FORBIDDEN') {
+        throw new Error(
+          `Role violation: Only authorized Makers can edit report draft data. User role "${user.role}" is restricted from data modifications.`
+        );
+      }
+      throw new Error(evalResult.reason);
+    }
 
     if (sub.status !== 'DRAFT' && sub.status !== 'CORRECTION_REQUIRED') {
       throw new Error(`Cannot modify submission in status ${sub.status}`);
@@ -881,12 +887,16 @@ class SubmissionServiceClass {
    * Maker submits report to Checker.
    */
   public submitToChecker(id: string, user: UserSession, commentText?: string): ReportSubmission {
-    if (user.role !== 'MAKER') {
-      throw new Error('Only the Maker who prepared the report can submit it to the Checker.');
-    }
-
     const sub = this.submissions.get(id);
     if (!sub) throw new Error(`Submission not found: ${id}`);
+
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, sub.reportKey, 'SUBMIT_CHECKER', sub);
+    if (!evalResult.allowed) {
+      if (evalResult.code === 'ROLE_FORBIDDEN') {
+        throw new Error('Only the Maker who prepared the report can submit it to the Checker.');
+      }
+      throw new Error(evalResult.reason);
+    }
 
     // Pre-submission validation gate
     const valSummary = this.validateSubmission(id);
@@ -941,6 +951,24 @@ class SubmissionServiceClass {
     // Save to IndexedDB
     indexedDbStorage.saveDraft(finalSubWithSnapshot).catch(() => {});
 
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'WORKFLOW_STATUS_CHANGED',
+        action: 'PENDING_CHECKER',
+        domain: 'WORKFLOW',
+        entityId: id,
+        topic: 'WORKFLOWS',
+        actor: { id: user.id, name: user.name, role: user.role },
+        summary: `Report ${sub.reportKey} submitted to Checker by ${user.name}`,
+        payload: {
+          submissionId: id,
+          reportKey: sub.reportKey,
+          status: 'PENDING_CHECKER',
+          version: finalSubWithSnapshot.version,
+        },
+      });
+    } catch (_) {}
+
     auditService.log({
       actorId: user.id,
       actorName: user.name,
@@ -970,10 +998,11 @@ class SubmissionServiceClass {
     const sub = this.submissions.get(id);
     if (!sub) throw new Error(`Submission not found: ${id}`);
 
-    // Department & Segregation Verification
-    const checkAuth = userService.canCheckerReviewSubmission(user, sub);
-    if (!checkAuth.allowed) {
-      throw new Error(`Review denied: ${checkAuth.reason}`);
+    // Authoritative Central Effective Access Engine Evaluation
+    const evalAction = action === 'APPROVE' ? 'APPROVE' : action === 'REJECT' ? 'REJECT' : 'REQUEST_CORRECTION';
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, sub.reportKey, evalAction, sub);
+    if (!evalResult.allowed) {
+      throw new Error(`Review denied: ${evalResult.reason}`);
     }
 
     const targetStatus: SubmissionStatus =
@@ -1028,6 +1057,24 @@ class SubmissionServiceClass {
     // Save to IndexedDB
     indexedDbStorage.saveDraft(finalSubWithSnapshot).catch(() => {});
 
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'WORKFLOW_STATUS_CHANGED',
+        action: targetStatus,
+        domain: 'WORKFLOW',
+        entityId: id,
+        topic: 'WORKFLOWS',
+        actor: { id: user.id, name: user.name, role: user.role },
+        summary: `Report ${sub.reportKey} ${targetStatus} by Checker ${user.name}`,
+        payload: {
+          submissionId: id,
+          reportKey: sub.reportKey,
+          status: targetStatus,
+          version: finalSubWithSnapshot.version,
+        },
+      });
+    } catch (_) {}
+
     auditService.log({
       actorId: user.id,
       actorName: user.name,
@@ -1047,17 +1094,24 @@ class SubmissionServiceClass {
    * Requirement: "It's the Maker who makes the final submission of the report to the NBE."
    */
   public async deliverToNBE(id: string, user: UserSession): Promise<DeliveryResult> {
-    if (user.role !== 'MAKER') {
-      throw new Error(
-        `Segregation of duties rule: It is the Maker who makes the final submission of the report to the NBE. Current user role: ${user.role}`
-      );
-    }
-
     const sub = this.submissions.get(id);
     if (!sub) throw new Error(`Submission not found: ${id}`);
 
-    if (sub.status !== 'APPROVED' && sub.status !== 'FAILED') {
-      throw new Error(`Only APPROVED or FAILED submissions can be delivered to NBE. Current: ${sub.status}`);
+    // If previously failed, allow retry; otherwise require APPROVED state
+    if (sub.status !== 'FAILED') {
+      const evalResult = effectiveAccessEngine.evaluateAccess(user, sub.reportKey, 'DELIVER_NBE', sub);
+      if (!evalResult.allowed) {
+        if (evalResult.code === 'ROLE_FORBIDDEN') {
+          throw new Error(
+            `Segregation of duties rule: It is the Maker who makes the final submission of the report to the NBE. Current user role: ${user.role}`
+          );
+        }
+        throw new Error(evalResult.reason);
+      }
+    } else if (user.role !== 'MAKER') {
+      throw new Error(
+        `Segregation of duties rule: It is the Maker who makes the final submission of the report to the NBE. Current user role: ${user.role}`
+      );
     }
 
     // Set status to SENDING
@@ -1149,6 +1203,25 @@ class SubmissionServiceClass {
 
     // Save to IndexedDB
     indexedDbStorage.saveDraft(updatedSub).catch(() => {});
+
+    try {
+      realtimeSsotEngine.publishEvent({
+        eventType: 'WORKFLOW_STATUS_CHANGED',
+        action: finalStatus,
+        domain: 'WORKFLOW',
+        entityId: id,
+        topic: 'WORKFLOWS',
+        actor: { id: user.id, name: user.name, role: user.role },
+        summary: `Report ${sendingSub.reportKey} delivered to NBE Gateway (Status: ${finalStatus})`,
+        payload: {
+          submissionId: id,
+          reportKey: sendingSub.reportKey,
+          status: finalStatus,
+          version: updatedSub.version,
+          receiptNumber: receiptNum,
+        },
+      });
+    } catch (_) {}
 
     auditService.log({
       actorId: user.id,
@@ -1369,3 +1442,8 @@ class SubmissionServiceClass {
 }
 
 export const submissionService = new SubmissionServiceClass();
+userService.setSubmissionProvider(submissionService);
+departmentService.setSubmissionProvider(submissionService);
+departmentService.setUserProvider(userService);
+configService.setSubmissionProvider(submissionService);
+configService.setUserProvider(userService);
