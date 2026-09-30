@@ -1,6 +1,6 @@
 {
-  "name": "OB / NBE Regulatory Reporting Platform",
-  "description": "Landing pad and runtime kernel for the OB/NBE regulatory reporting application.",
+  "name": "Oromia Bank NBE Regulatory Reporting & Simulation Platform",
+  "description": "Comprehensive regulatory reporting, validation, simulation, and data integration platform for National Bank of Ethiopia (NBE) returns with Maker-Checker workflow.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
