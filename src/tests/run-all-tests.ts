@@ -353,6 +353,13 @@ import { runPhase6BulkOperationsTests } from './phase6-bulk-operations.test.ts';
 import { runRealtimeSsotSynchronizationTests } from './realtime-ssot-synchronization.test.ts';
 import { runConfigurationGovernanceVersioningTests } from './configuration-governance-versioning.test.ts';
 import { runPhase9PlatformHardeningAcceptanceTests } from './phase9-platform-hardening-acceptance.test.ts';
+import { runPhase10BiometricArchitectureSecurityTests } from './phase10-biometric-architecture-security.test.ts';
+import { runPhase11BiometricRegistrationEnrollmentTests } from './phase11-biometric-registration-enrollment.test.ts';
+import { runPhase12BiometricSignInAuthenticationTests } from './phase12-biometric-signin-authentication.test.ts';
+import { runPhase13BiometricResetRecoveryDevicesTests } from './phase13-biometric-reset-recovery-devices.test.ts';
+import { runPhase14BiometricHardeningPrivacyComplianceTests } from './phase14-biometric-hardening-privacy-compliance.test.ts';
+import { runPhase15BiometricE2EHardwareValidationAcceptanceTests } from './phase15-biometric-e2e-hardware-validation-acceptance.test.ts';
+import { runPhase16FaceIdCameraLifecycleTests } from './phase16-face-id-camera-lifecycle.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -362,6 +369,13 @@ async function runFullApplicationTestSuite() {
   await runPhase2ConfigurationSSOTTests();
   runPhase3AdminUsersAndDepartmentsTests();
   await runBiometricAndAccessoryTests();
+  await runPhase10BiometricArchitectureSecurityTests();
+  await runPhase11BiometricRegistrationEnrollmentTests();
+  await runPhase12BiometricSignInAuthenticationTests();
+  await runPhase13BiometricResetRecoveryDevicesTests();
+  await runPhase14BiometricHardeningPrivacyComplianceTests();
+  await runPhase15BiometricE2EHardwareValidationAcceptanceTests();
+  await runPhase16FaceIdCameraLifecycleTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();
   await runResponsiveUiAndLayoutTests();
@@ -380,6 +394,7 @@ async function runFullApplicationTestSuite() {
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');
   console.log('========================================================================\n');
+  process.exit(0);
 }
 
 runFullApplicationTestSuite().catch((err) => {

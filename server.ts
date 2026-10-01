@@ -29,6 +29,7 @@ import { effectiveAccessEngine } from './src/services/effectiveAccessEngine.ts';
 import { bulkOperationsEngine } from './src/services/bulkOperationsEngine.ts';
 import { realtimeSsotEngine } from './src/services/realtimeSsotEngine.ts';
 import { configurationGovernanceService } from './src/services/configurationGovernanceService.ts';
+import { biometricService } from './src/services/biometricService.ts';
 
 dotenv.config();
 
@@ -46,6 +47,7 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Idempotency-Key, X-Correlation-ID');
+  res.header('Permissions-Policy', 'camera=*, microphone=()');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
     return;
@@ -887,7 +889,352 @@ app.post('/api/auth/reset-password', (req, res) => {
   }
 });
 
-// Register biometric credentials on server
+// PHASE 10 - 14: Biometric Architecture, Security, Privacy & Compliance Endpoints
+
+// Biometric Request ID & Security Boundary Middleware
+app.use('/api/auth/biometrics', (req, res, next) => {
+  const reqId = (req.headers['x-request-id'] as string) || `req_bio_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  res.setHeader('X-Request-ID', reqId);
+  res.setHeader('X-Biometric-TLS-Expectation', 'TLS_1_3_STRICT');
+  next();
+});
+
+// 0. Biometric Service Boundary Health Check
+app.get('/api/auth/biometrics/health', (_req, res) => {
+  const health = biometricService.getServiceHealth();
+  res.json(health);
+});
+
+// 0b. User-Facing Privacy & Statutory Compliance Disclosure
+app.get('/api/auth/biometrics/privacy-disclosure', (_req, res) => {
+  const disclosure = biometricService.getPrivacyDisclosure();
+  res.json({ success: true, disclosure });
+});
+
+// 1. Issue fresh cryptographic challenge (nonce)
+app.post('/api/auth/biometrics/challenge', (req, res) => {
+  const { email, type, purpose, rpId, origin } = req.body;
+  if (!email || !type || !purpose) {
+    res.status(400).json({ success: false, message: 'email, type, and purpose required.' });
+    return;
+  }
+  try {
+    const challenge = biometricService.createChallenge(email, type, purpose, rpId, origin);
+    res.json({ success: true, challenge });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// 2. WebAuthn Registration Options
+app.post('/api/auth/biometrics/webauthn/register-options', (req, res) => {
+  const { email, rpId, origin } = req.body;
+  if (!email) {
+    res.status(400).json({ success: false, message: 'Email is required.' });
+    return;
+  }
+  try {
+    const data = biometricService.generateWebAuthnRegistrationOptions(email, rpId, origin);
+    res.json({ success: true, ...data });
+  } catch (err: any) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// 3. WebAuthn Registration Verify
+app.post('/api/auth/biometrics/webauthn/register-verify', (req, res) => {
+  const { email, challengeId, response } = req.body;
+  if (!email || !challengeId || !response) {
+    res.status(400).json({ success: false, message: 'Email, challengeId, and response payload required.' });
+    return;
+  }
+  const result = biometricService.verifyWebAuthnRegistration(email, challengeId, response);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 4. WebAuthn Authentication Options
+app.post('/api/auth/biometrics/webauthn/auth-options', (req, res) => {
+  const { email, rpId } = req.body;
+  if (!email) {
+    res.status(400).json({ success: false, message: 'Email is required.' });
+    return;
+  }
+  try {
+    const data = biometricService.generateWebAuthnAuthenticationOptions(email, rpId);
+    res.json({ success: true, ...data });
+  } catch (err: any) {
+    const status = err.message?.includes('locked') ? 429 : 400;
+    res.status(status).json({ success: false, message: err.message, lockedOut: err.message?.includes('locked') });
+  }
+});
+
+// 5. WebAuthn Authentication Verify
+app.post('/api/auth/biometrics/webauthn/auth-verify', (req, res) => {
+  const { email, challengeId, response } = req.body;
+  if (!email || !challengeId || !response) {
+    res.status(400).json({ success: false, message: 'Email, challengeId, and response payload required.' });
+    return;
+  }
+  const result = biometricService.verifyWebAuthnAssertion(email, challengeId, response);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(result.lockedOut ? 429 : 401).json(result);
+  }
+});
+
+// 6. Server-Authoritative Face Enrollment
+app.post('/api/auth/biometrics/face/enroll', (req, res) => {
+  const { email, challengeId, featureVector, qualityMetrics, livenessEvidence, deviceLabel } = req.body;
+  if (!email || !challengeId || !featureVector) {
+    res.status(400).json({ success: false, message: 'Email, challengeId, and featureVector required.' });
+    return;
+  }
+  const result = biometricService.enrollFaceBiometric(
+    email,
+    challengeId,
+    featureVector,
+    qualityMetrics,
+    livenessEvidence,
+    deviceLabel
+  );
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 7. Server-Authoritative Face Verification
+app.post('/api/auth/biometrics/face/verify', (req, res) => {
+  const { email, challengeId, featureVector, qualityMetrics, livenessEvidence } = req.body;
+  if (!email || !challengeId || !featureVector) {
+    res.status(400).json({ success: false, message: 'Email, challengeId, and featureVector required.' });
+    return;
+  }
+  const result = biometricService.verifyFaceBiometric({
+    email,
+    challengeId,
+    featureVector,
+    qualityMetrics,
+    livenessEvidence,
+  });
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(result.lockedOut ? 429 : 401).json(result);
+  }
+});
+
+// 8. Authoritative User Biometric Lifecycle State
+app.get('/api/auth/biometrics/lifecycle/:email', (req, res) => {
+  const targetEmail = req.params.email.toLowerCase().trim();
+  const actorEmail = ((req.headers['x-actor-email'] as string) || (req.query.actorEmail as string) || '').toLowerCase().trim();
+
+  // Cross-user visibility restriction to prevent account enumeration / reconnaissance
+  if (actorEmail && actorEmail !== targetEmail) {
+    const actor = userService.getByEmail(actorEmail);
+    if (!actor || (actor.role !== 'ADMIN' && actor.role !== 'AUDITOR')) {
+      res.status(403).json({ success: false, message: 'Security violation: Unauthorized access to officer lifecycle state.' });
+      return;
+    }
+  }
+
+  const state = biometricService.getBiometricUserState(targetEmail);
+  res.json(state);
+});
+
+// 8b. Comprehensive Biometric Security Center & Device Metadata (Safe, Non-invertible)
+app.get('/api/auth/biometrics/security-center/:email', (req, res) => {
+  const targetEmail = req.params.email.toLowerCase().trim();
+  const actorEmail = ((req.headers['x-actor-email'] as string) || (req.query.actorEmail as string) || '').toLowerCase().trim();
+
+  // Cross-user visibility restriction to prevent unauthorized reconnaissance
+  if (actorEmail && actorEmail !== targetEmail) {
+    const actor = userService.getByEmail(actorEmail);
+    if (!actor || (actor.role !== 'ADMIN' && actor.role !== 'AUDITOR')) {
+      res.status(403).json({ success: false, message: 'Security violation: Unauthorized access to officer security center details.' });
+      return;
+    }
+  }
+
+  const details = biometricService.getSecurityCenterDetails(targetEmail);
+  if (!details) {
+    res.status(404).json({ success: false, message: 'Officer account not found.' });
+    return;
+  }
+  res.json({ success: true, ...details });
+});
+
+// 9. Suspend Biometric Credential
+app.post('/api/auth/biometrics/suspend', (req, res) => {
+  const { email, credentialId, reason, actorEmail } = req.body;
+  if (!email || !credentialId) {
+    res.status(400).json({ success: false, message: 'Email and credentialId required.' });
+    return;
+  }
+  const result = biometricService.suspendCredential(email, credentialId, reason || 'Suspended by user/admin', actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 9b. Resume / Reactivate Suspended Credential
+app.post('/api/auth/biometrics/resume', (req, res) => {
+  const { email, credentialId, reason, actorEmail, password } = req.body;
+  if (!email || !credentialId) {
+    res.status(400).json({ success: false, message: 'Email and credentialId required.' });
+    return;
+  }
+  const result = biometricService.resumeCredential(email, credentialId, reason, actorEmail, password);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 10. Revoke Biometric Credential (with step-up password support)
+app.post('/api/auth/biometrics/revoke', (req, res) => {
+  const { email, credentialId, reason, actorEmail, password } = req.body;
+  if (!email || !credentialId) {
+    res.status(400).json({ success: false, message: 'Email and credentialId required.' });
+    return;
+  }
+  const result = biometricService.revokeCredential(email, credentialId, reason || 'Revoked by user/admin', actorEmail, password);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 10b. Rename Device Label
+app.post('/api/auth/biometrics/device/rename', (req, res) => {
+  const { email, credentialId, newLabel, actorEmail } = req.body;
+  if (!email || !credentialId || !newLabel) {
+    res.status(400).json({ success: false, message: 'Email, credentialId, and newLabel required.' });
+    return;
+  }
+  const result = biometricService.renameDeviceLabel(email, credentialId, newLabel, actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 11. Request Step-up Authenticated Reset
+app.post('/api/auth/biometrics/reset/request', (req, res) => {
+  const { email, type, password, reason, actorEmail } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ success: false, message: 'Email and password required for reset authorization.' });
+    return;
+  }
+  const result = biometricService.requestReset(email, type || 'ALL', password, reason || 'User requested reset', actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(401).json(result);
+  }
+});
+
+// 12. Execute Authorized Reset
+app.post('/api/auth/biometrics/reset/execute', (req, res) => {
+  const { email, resetToken, actorEmail } = req.body;
+  if (!email || !resetToken) {
+    res.status(400).json({ success: false, message: 'Email and resetToken required.' });
+    return;
+  }
+  const result = biometricService.executeReset(email, resetToken, actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 12b. Administrative Direct Reset (Supervisor Emergency Override)
+app.post('/api/auth/biometrics/admin/reset', (req, res) => {
+  const { adminEmail, targetEmail, type, reason, adminPassword } = req.body;
+  if (!adminEmail || !targetEmail || !adminPassword) {
+    res.status(400).json({ success: false, message: 'adminEmail, targetEmail, and adminPassword required.' });
+    return;
+  }
+  const result = biometricService.adminResetBiometrics(adminEmail, targetEmail, type || 'ALL', reason || 'Administrative emergency reset', adminPassword);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 12c. Administrative Unlock Account Lockout
+app.post('/api/auth/biometrics/admin/unlock', (req, res) => {
+  const { adminEmail, targetEmail, reason } = req.body;
+  if (!adminEmail || !targetEmail) {
+    res.status(400).json({ success: false, message: 'adminEmail and targetEmail required.' });
+    return;
+  }
+  const result = biometricService.adminUnlockAccount(adminEmail, targetEmail, reason || 'Administrative unlock');
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 13. Unlock Rate Limited Lockout via Step-Up Password
+app.post('/api/auth/biometrics/unlock', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ success: false, message: 'Email and password required.' });
+    return;
+  }
+  const result = biometricService.unlockWithStepUp(email, password);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(401).json(result);
+  }
+});
+
+// 14a. Enforce Retention & Purge Expired Biometric Data
+app.post('/api/auth/biometrics/retention/purge', (req, res) => {
+  const { actorEmail } = req.body;
+  if (actorEmail) {
+    const actor = userService.getByEmail(actorEmail.toLowerCase().trim());
+    if (!actor || actor.role !== 'ADMIN') {
+      res.status(403).json({ success: false, message: 'Security violation: Administrator privilege required to purge biometric data.' });
+      return;
+    }
+  }
+  const result = biometricService.enforceRetentionRules();
+  res.json({ success: true, ...result });
+});
+
+// 14b. Export Sanitized Compliance Archive for NBE Audits
+app.post('/api/auth/biometrics/compliance/export', (req, res) => {
+  const { requesterEmail, targetEmail } = req.body;
+  if (!requesterEmail) {
+    res.status(400).json({ success: false, message: 'requesterEmail required.' });
+    return;
+  }
+  try {
+    const archive = biometricService.exportComplianceArchive(requesterEmail, targetEmail);
+    res.json({ success: true, archive });
+  } catch (err: any) {
+    res.status(403).json({ success: false, message: err.message });
+  }
+});
+
+// Register biometric credentials on server (backward compatibility)
 app.post('/api/auth/biometrics/register', (req, res) => {
   const { email, credential } = req.body;
   if (!email || !credential || !credential.type) {
@@ -912,7 +1259,7 @@ app.post('/api/auth/biometrics/register', (req, res) => {
   }
 });
 
-// Verify biometric login on server
+// Verify biometric login on server (backward compatibility)
 app.post('/api/auth/biometrics/verify', (req, res) => {
   const { email, type, credentialId, faceHash } = req.body;
   if (!email || !type) {
@@ -2040,6 +2387,9 @@ function ensureDjangoSimulatorRunning() {
           detached: true,
           stdio: 'ignore',
           cwd: __dirname,
+        });
+        proc.on('error', (err) => {
+          console.warn('[NBE Simulator Service] Python microservice auto-spawn unavailable (using built-in simulator engine):', err.message);
         });
         proc.unref();
       } catch (e: any) {

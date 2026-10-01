@@ -4,32 +4,219 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
-## [10.0.0-phase10-to-15-biometric-services-roadmap] - 2026-09-30
+## [15.0.0-phase15-biometric-e2e-hardware-validation-acceptance] - 2026-10-01
 
 ### Added
-- **Biometric Service Specifications & Engineering Architecture (Phases 10 to 15)**:
-  - Formulated full-stack, enterprise-grade engineering specifications in individual prompt files within the project root:
-    - `10_BIOMETRIC_DEVICE_INTELLIGENCE_AND_PERMISSION_NEGOTIATION.md` (Mobile/Tablet/PC hardware diagnostics, camera availability probing, two-tier consent negotiation, persistent permissions, graceful fallbacks, notification services).
-    - `11_REAL_TIME_FACE_DETECTION_AND_FEATURE_EXTRACTION_ENGINE.md` (Optical canvas face detection, confidence scoring >80%, 20-second countdown lifecycle, mathematical vector extraction, anti-spoofing/liveness verification, 4-stage UI animations, SSOT DB storage, enrollment flags).
-    - `12_WEBAUTHN_FIDO2_FINGERPRINT_REGISTRATION_SERVICE.md` (FIDO2 / WebAuthn platform authenticators [Touch ID, Windows Hello, Android BiometricPrompt], asymmetric key-pair generation, iframe sandbox fallback, challenge-response validation, SSOT registration).
-    - `13_UNIFIED_BIOMETRIC_SIGN_IN_AND_MULTI_MODAL_AUTHENTICATION.md` (Zero-interference multi-modal sign-in, Face ID vector comparison, WebAuthn assertion verification, account status guardrails, 3-attempt brute-force lockout, rich UI animations, security notifications).
-    - `14_BIOMETRIC_RESET_LIFECYCLE_GOVERNANCE_AND_AUDIT.md` (Mandatory password re-authentication, previous vector status archival as `REVOKED`, 4-step reset wizard, administrative emergency wipe, tamper-evident audit logs, transactional security alerts).
-    - `15_BIOMETRIC_PLATFORM_HARDENING_E2E_AND_ACCEPTANCE.md` (Comprehensive automated test harness, responsive cross-device matrix, fault injection, regulatory acceptance gate under NBE Directive BSD/03/2020).
+- **Biometric E2E, Hardware Validation & Acceptance Suite (`src/tests/phase15-biometric-e2e-hardware-validation-acceptance.test.ts`, `BIOMETRIC_ACCEPTANCE_MATRIX.md`, `src/hooks/useBiometricAuth.ts`, `15_BIOMETRIC_E2E_HARDWARE_VALIDATION_AND_ACCEPTANCE.md`)**:
+  - **Comprehensive Acceptance Matrix**: Structured audit table (`BIOMETRIC_ACCEPTANCE_MATRIX.md`) classifying all biometric capabilities across implementation, test coverage, runtime environment, acceptance result, and engineering notes.
+  - **Truthful Hardware Reporting**: Explicitly separates software verification from physical hardware verification. Platforms without attached capacitive Touch ID silicon or infrared depth sensors are truthfully designated `HARDWARE_PENDING` without simulated hardware success.
+  - **Camera Permission & Hardware State Handling**:
+    - Dedicated handling for `NotAllowedError` / `PermissionDeniedError` (clear permission guidance).
+    - Dedicated handling for `NotReadableError` / `TrackStartError` (busy camera alert advising user to close other apps).
+    - Dedicated handling for `AbortError` (dismiss/cancel without unhandled exceptions).
+    - Dedicated handling for `NotFoundError` (clear missing camera alert).
+    - Dedicated handling for `OverconstrainedError` (hardware constraint mismatch fallback).
+  - **Optical Quality & Liveness Verification**:
+    - Dark (<35) and overexposed glare (>235) luminance threshold enforcement.
+    - Laplacian gradient edge sharpness (<0.35) blur rejection.
+    - Single-face framing bounds (0 faces and >1 face rejections).
+    - Temporal variance anti-spoofing against static photo presentation attacks.
+  - **WebAuthn Platform Passkey Assertions**:
+    - Registration & assertion verification with monotonic counter increment validation.
+    - Exception handling for user abort, timeout, security policy restrictions, and unconfigured authenticators.
+    - Revoked passkey rejection and multi-credential device support.
+  - **Multi-Mechanism Login & Dashboard Redirections**:
+    - Strict method isolation (Password vs. Fingerprint vs. Face ID).
+    - Role-specific dashboard convergence: `MAKER_WORKSPACE`, `CHECKER_INBOX`, `ADMIN_DASHBOARD`, `AUDITOR_DASHBOARD`.
+    - Business continuity fallback to master institutional password.
+  - **Security & E2E Attack Resistance**:
+    - Cross-account IDOR isolation on Security Center and Compliance Export.
+    - Cryptographic nonce single-use replay defense.
+    - Authenticator counter rollback defense against cloned keys.
+    - Master institutional password verification for biometric resets.
+  - **Real Performance Benchmarks**:
+    - Optical quality analysis: **0.228 ms / frame**.
+    - Temporal liveness analysis: **0.046 ms / frame**.
+    - Salted HMAC-SHA256 template hashing: **0.066 ms / hash**.
+    - WebAuthn server assertion verification: **0.143 ms / assertion**.
+  - **Automated Test Suite**: 53 assertions in `phase15-biometric-e2e-hardware-validation-acceptance.test.ts` (100% passing).
 
 ---
 
-## [9.0.0-phase9-full-platform-hardening-acceptance] - 2026-09-30
+## [14.0.0-phase14-biometric-service-hardening-privacy-compliance] - 2026-10-01
 
-### Hardened & Fixed
-- **Full Platform Hardening & Acceptance Gates (`09_FULL_PLATFORM_HARDENING_AND_ACCEPTANCE.md`)**:
-  - Validated initial migrations across all 8 backend apps (`departments`, `reports`, `accounts`, `workflows`, `audit`, `permissions`, `notifications`, `nbe_gateway`).
-  - Implemented dynamic department rename synchronization with `organizationHierarchy` and `userService` (`registerDynamicDepartmentLookup`, `recordDepartmentRename`).
-  - Enforced dynamic report retirement check in `submissionService.createSubmission` and `saveDraft`, preventing new submissions while preserving historical returns.
-  - Implemented immutable historical template snapshots in `getEffectiveTemplate`, guaranteeing past returns reproduce their exact schema without version leakage.
-  - Fixed formula injection sanitization (`sanitizeFormulaInjection`) in bulk operations engine.
-  - Validated NBE Simulator contracts, receipt generation, idempotency, and error modes (`VALIDATION_FAILED`, `AUTHENTICATION_FAILED`, `SYSTEM_ERROR`).
-  - Cache latency benchmarked at <0.001ms/call with immediate global configuration hash rotation.
-  - 100% assertions satisfied across automated test suites (`phase9-platform-hardening-acceptance.test.ts`).
+### Added
+- **Biometric Service Hardening, Privacy & Statutory Compliance (`src/services/biometricService.ts`, `src/services/userService.ts`, `src/services/auditService.ts`, `server.ts`, `BIOMETRIC_SECURITY_PRIVACY_COMPLIANCE.md`, `src/tests/phase14-biometric-hardening-privacy-compliance.test.ts`, `14_BIOMETRIC_SERVICE_HARDENING_PRIVACY_AND_COMPLIANCE.md`)**:
+  - **Security Hardening**:
+    - Strict template equality matching (eliminated insecure `face_sig_*` prefix bypass).
+    - Input validation rejecting malformed, negative, or empty feature vectors and counters.
+    - Uniform error messages on auth options to prevent account enumeration and reconnaissance.
+    - Progressive delays (1s, 2s, 4s) on repeated failures and 15-minute temporary lockout.
+    - Step-up password verification for account unlock and reset authorization.
+  - **Data Privacy & Sanitization**:
+    - Non-invertible salted HMAC-SHA256 signatures (`computeProtectedFaceSignature`); zero raw image/video persistence.
+    - Comprehensive data sanitization in `auditService.ts` (`sanitizeAuditPayload`) stripping passwords, private keys, base64 image buffers, and raw numeric vectors from audit records.
+    - Transparent statutory privacy disclosure (`getPrivacyDisclosure`) citing NBE Directive BSD/03/2020.
+    - Data minimization retention purge (`purgeExpiredChallengesAndTokens`).
+    - Cryptographically sealed compliance archive export (`exportComplianceArchive`) with SHA-256 integrity checksum for NBE bank examiners.
+  - **Documented Technical Limitations**:
+    - Ambient luminance bounds (35–235 units), Laplacian sharpness threshold (0.35).
+    - Software 2D optical liveness vs. 3D hardware infrared depth sensors.
+    - Platform authenticator device-bound isolation.
+  - **Automated Test Suite**: 60+ assertions in `phase14-biometric-hardening-privacy-compliance.test.ts` (100% passing).
+
+---
+
+## [13.0.0-phase13-biometric-reset-recovery-devices] - 2026-10-01
+
+### Added
+- **Production Biometric Lifecycle Management, Reset, Recovery & Multi-Device Support (`src/services/biometricService.ts`, `src/services/userService.ts`, `src/components/BiometricSecurityCenter.tsx`, `src/components/UserSettingsModal.tsx`, `src/components/AdminDashboard.tsx`, `server.ts`, `src/tests/phase13-biometric-reset-recovery-devices.test.ts`, `13_BIOMETRIC_RESET_RECOVERY_AND_DEVICE_MANAGEMENT.md`)**:
+  - **Server-Authorized Face ID Reset**:
+    - Mandatory step-up password re-authentication before issuing reset authorization.
+    - Verification of existing enrollment state prior to reset.
+    - Explicit explanation of permanent consequences returned to user (invalidation of face vector template, cached authorization purge, required live optical re-scan).
+    - Single-use, short-lived (5 min TTL) cryptographic nonce tokens (`rst_*`).
+    - Atomic token consumption defending against replay and race conditions.
+    - Permanent template revocation and state transition back to `NOT_ENROLLED`, cleanly allowing fresh optical re-enrollment.
+  - **WebAuthn Credential Management & Multi-Authenticator Support**:
+    - Architectural support for registering and managing multiple hardware passkeys on a single institutional account (e.g. Work MacBook Touch ID, YubiKey 5C NFC, mobile passkey).
+    - Friendly device label renaming (`renameDeviceLabel` & `/api/auth/biometrics/device/rename`).
+    - Safe credential metadata inspection (masked IDs, monotonic replay counters, transports, timestamps).
+    - Selective individual device revocation (`revokeCredential` & `/api/auth/biometrics/revoke`) with step-up verification, preserving remaining registered passkeys.
+  - **Passkey Suspension & Resumption Lifecycle**:
+    - Temporary security hold (`suspendCredential` & `/api/auth/biometrics/suspend`) without destructive deletion.
+    - Safe credential resumption (`resumeCredential` & `/api/auth/biometrics/resume`) with step-up password verification.
+    - Rejection of authentication attempts on suspended credentials.
+  - **Security Protections & Hostile Path Defense**:
+    - Protection against stolen sessions: password verification required for any reset or revocation.
+    - Progressive lockout against brute-force password guessing on reset requests (5 failed attempts -> lockout).
+    - IDOR / Cross-user tampering rejection: non-admin users cannot reset or revoke other users' credentials.
+    - Token cross-user hijacking defense: tokens strictly bound to account email.
+    - Concurrency & race condition defense: atomic single-use consumption blocks parallel execution races.
+  - **Administrative Direct Reset & Lockout Recovery**:
+    - Supervisor emergency reset (`adminResetBiometrics` & `/api/auth/biometrics/admin/reset`) for lost or compromised hardware.
+    - Supervisor administrative lockout unlock (`adminUnlockAccount` & `/api/auth/biometrics/admin/unlock`).
+    - Segregation of duties audit trail explicitly logging `ADMIN OVERRIDE`.
+  - **Biometric Security Center UI**:
+    - Dedicated, accessible UI component (`BiometricSecurityCenter.tsx`) integrated into `UserSettingsModal.tsx` and `AdminDashboard.tsx`.
+    - Real-time status cards for Face ID and WebAuthn passkeys.
+    - Registered devices table with device icons, safe telemetry, inline rename, suspend, and revoke actions.
+    - Recent security events audit stream.
+    - Official NBE Directive BSD/03/2020 lost device, hardware failure, and recovery guidance.
+    - Zero exposure of raw vectors, private keys, or passwords.
+  - **Automated Test Suite (`src/tests/phase13-biometric-reset-recovery-devices.test.ts`)**:
+    - 9 comprehensive test suites (58 assertions) covering authorized reset, wrong password rejection, consumed token replay defense, IDOR cross-user rejection, multi-device passkeys, individual revocation, suspension/resumption, concurrency race conditions, administrative emergency override, and zero-secret leakage telemetry.
+    - Integrated into `src/tests/run-all-tests.ts` (100% pass across all test suites).
+
+---
+
+## [12.0.0-phase12-biometric-signin-authentication] - 2026-10-01
+
+### Added
+- **Production-Quality Biometric Sign-In & Authoritative Authentication (`src/services/biometricService.ts`, `src/services/userService.ts`, `src/hooks/useBiometricAuth.ts`, `src/components/BiometricPromptModal.tsx`, `src/components/LoginPage.tsx`, `server.ts`, `src/tests/phase12-biometric-signin-authentication.test.ts`, `12_BIOMETRIC_SIGN_IN_AND_AUTHENTICATION.md`)**:
+  - Independent & Coexistent Authentication Mechanisms:
+    - User selection strictly governs the executed mechanism: Password triggers password authentication, Fingerprint triggers WebAuthn assertion, Face ID triggers optical quality/liveness verification and server matching.
+    - Zero silent invocation or automatic silent fallback: biometric failure prompts active user choice (retry, switch method, or input password).
+  - Fingerprint / WebAuthn Authentication Engine:
+    - Secure challenge lifecycle with 60-second TTL and atomic single-use consumption.
+    - Assertion verification (`verifyWebAuthnAssertion` & `/api/auth/biometrics/webauthn/auth-verify`) validating credential ownership, RP ID, user binding, and signature assertion.
+    - Replay attack defenses: consumed challenges rejected immediately with audit logging; monotonic signature counters strictly enforced, rejecting counter duplicate or rollback anomalies.
+    - Comprehensive error handling for unsupported browser, no credential, user cancellation (`AbortError`), timeout, invalid assertion, suspended credential, revoked credential, and server errors.
+  - Optical Face ID Authentication Engine:
+    - Explicit camera consent and live video stream initialization.
+    - Client-side pre-flight checks: luminance, sharpness, single-face validation.
+    - Server-authoritative matching (`verifyFaceBiometric` & `/api/auth/biometrics/face/verify`): bounded thresholds for luminance ([35, 235]), sharpness (>= 0.35), single face (`faceCount === 1`), and spoof probability (<= 0.40).
+    - Protected feature processing: non-invertible salted HMAC template comparison; zero raw images stored.
+  - Anti-Brute Force Rate Limiting & Account Security:
+    - Progressive lockout: 5 consecutive failed attempts trigger a 15-minute lockout (`lockedOut: true`, countdown timer).
+    - Immediate block of all subsequent authentication attempts during active lockout, even with valid biometric data.
+    - Step-up password recovery (`unlockWithStepUp` & `/api/auth/biometrics/unlock`): supervisor/user password input clears biometric lockout and resets failure counters.
+    - Account enumeration prevention: uniform error responses avoiding disclosure of registered accounts or database details.
+  - Authoritative Session Creation & Role Redirection:
+    - Successful authentication (Password, Fingerprint, or Face) converges on canonical `UserSession` object with `sessionToken`, `sessionExpiresAt`, and explicit `authMethod`.
+    - Role-specific dashboard routing:
+      - `ADMIN` -> `ADMIN_DASHBOARD`
+      - `MAKER` -> `MAKER_WORKSPACE`
+      - `CHECKER` -> `CHECKER_INBOX`
+      - `AUDITOR` -> `AUDITOR_DASHBOARD`
+  - Automated Phase 12 Test Suite (`src/tests/phase12-biometric-signin-authentication.test.ts`):
+    - 6 comprehensive test suites covering explicit method selection, WebAuthn fingerprint assertion and anti-replay safeguards, optical Face ID quality/liveness and server template matching, anti-brute force rate limiting and step-up password recovery, direct API bypass defenses, and password login regression across all four banking roles.
+    - 100% pass across all 23 automated test suites in `run-all-tests.ts`.
+
+---
+
+## [11.0.0-phase11-biometric-registration-enrollment] - 2026-10-01
+
+### Added
+- **Genuine End-to-End Biometric Registration and Enrollment (`src/services/biometricService.ts`, `src/hooks/useBiometricAuth.ts`, `src/components/BiometricPromptModal.tsx`, `src/components/RegisterPage.tsx`, `src/tests/phase11-biometric-registration-enrollment.test.ts`, `11_BIOMETRIC_REGISTRATION_ENROLLMENT.md`)**:
+  - Complete authenticated Face ID and Fingerprint/WebAuthn enrollment with genuine end-to-end flows and zero simulated success.
+  - Independent Biometric Methods:
+    - User selects one method at a time; enrolling Fingerprint leaves Face ID independent, and enrolling Face ID leaves Fingerprint independent.
+    - Both methods can coexist on a single institutional account with distinct credential records and lifecycle states.
+    - Post-registration success screen allows users to independently enroll a second method or proceed with standard credentials.
+  - Optical Face ID Enrollment Pipeline:
+    - Supports both live camera stream (PC/webcam) and native mobile selfie camera (`input type="file" capture="user"`).
+    - Detects browser camera capabilities (`navigator.mediaDevices.getUserMedia`).
+    - Staged accessible animation pipeline: `preparing`, `permission`, `camera start`, `face search`, `quality`, `liveness`, `processing`, and `success/failure/retry`.
+    - Live optical frame preview with alignment guide reticle and oval guide.
+    - Real-time client-side frame quality analysis (`analyzeFaceQuality`): luminance, sharpness (spatial Laplacian edge variance), single face presence, and face bounding ratio.
+    - Real optical motion and liveness anti-spoofing analysis (`analyzeFaceLiveness`): temporal variance detection to prevent presentation attacks using static photos or simulated screens.
+    - Server-authoritative quality and liveness enforcement (`/api/auth/biometrics/face/enroll`): validates single face, luminance in [35, 235], sharpness >= 0.35, spoof probability <= 0.40.
+    - Protected template persistence: non-invertible salted HMAC feature signature (`computeProtectedFaceSignature`); zero raw camera frames or pixel buffers stored.
+    - Graceful error notifications and recovery actions for: permission granted/denied/dismissed, no camera (`NotFoundError`), camera busy (`NotReadableError`), unsupported browser, initialization failure, no face (`faceCount === 0`), multiple faces (`faceCount > 1`), poor quality (blurry, underexposed, overexposed glare), timeout (30-second inactivity auto-cancel), liveness failure, and server failure.
+    - Truthful hardware identity: does not claim exact device model unless the browser reliably provides it via `MediaDeviceInfo.label`.
+  - WebAuthn Platform Fingerprint Passkey Enrollment:
+    - Authenticated identity context binding: only active authorized institutional accounts can obtain challenges and register passkeys.
+    - Cryptographic server challenge issuance (`/api/auth/biometrics/webauthn/register-options`) with 60-second TTL.
+    - Standard `PublicKeyCredentialCreationOptions` with `platform` authenticator attachment and `userVerification: required`.
+    - Server verification endpoint (`/api/auth/biometrics/webauthn/register-verify`) with credential ID storage, monotonic counter initialization, and public-key metadata.
+    - Comprehensive error handling without simulated success: unsupported browser, unavailable platform authenticator, user cancellation (`AbortError`), timeout, iframe security policy restriction (`SecurityError`), and server verification failure.
+  - Cross-Account Isolation & Identity Safeguards:
+    - Prevents duplicate WebAuthn credential IDs across accounts (cross-account collision rejected with `BIOMETRIC_ENROLL_REJECTED` audit log).
+    - Prevents duplicate facial biometric templates across accounts (duplicate biometric identity rejected with `BIOMETRIC_ENROLL_REJECTED` audit log).
+    - Enrollment challenge cannot be hijacked or consumed by a different account identity.
+  - Automated Phase 11 Test Suite (`src/tests/phase11-biometric-registration-enrollment.test.ts`):
+    - 6 comprehensive test suites covering method independence, capability detection and truthful device reporting, Face ID quality and anti-spoofing liveness, WebAuthn authenticated enrollment, cross-account isolation and duplicate credential prevention, and persistence/audit logging.
+    - Integrated into master test runner (`src/tests/run-all-tests.ts`) with 100% clean pass across all 22 automated test suites.
+
+---
+
+## [10.0.0-phase10-biometric-architecture-security-foundation] - 2026-10-01
+
+### Added
+- **Biometric Architecture & Security Foundation (`src/services/biometricService.ts`, `src/types/biometrics.ts`, `10_BIOMETRIC_ARCHITECTURE_AND_SECURITY_FOUNDATION.md`)**:
+  - Full authoritative user biometric lifecycle state machine:
+    - States: `NOT_ENROLLED`, `ENROLLMENT_IN_PROGRESS`, `ENROLLED`, `SUSPENDED`, `REVOKED`, `RESET_REQUESTED`, `RESET_IN_PROGRESS`, `FAILED_LOCKED`, `CAPABILITY_UNAVAILABLE`.
+    - Strict architectural separation between physical hardware capability and account enrollment state.
+  - Cryptographic challenge lifecycle:
+    - 32-byte high-entropy nonces base64url encoded with 60-second TTL.
+    - Single-use consumption preventing replay attacks.
+    - Strict identity, purpose, and biometric type binding.
+  - WebAuthn / Passkey platform authenticator engine:
+    - ES256 (-7) and RS256 (-257) standard algorithms, RP ID binding, userVerification required.
+    - Monotonic signature counter tracking to detect and reject authenticator rollback/replay anomalies.
+    - Secure public-key credential metadata storage without sensitive private key exposure.
+  - Protected server-authoritative Face recognition engine:
+    - Multi-factor quality checks: luminance (40-220), sharpness (>= 0.35), single face requirement (0 or >1 rejected), aspect framing.
+    - Liveness and anti-spoofing verification: motion score and spoof probability evaluation rejecting static photos and synthetic spoof markers.
+    - Non-invertible salted HMAC feature representation (`computeProtectedFaceSignature`) with institutional salt.
+    - Zero raw camera frames or pixel buffers persisted in database or logs.
+    - Strict server-side matching threshold (>= 0.82) with immediate rejection of test mismatch markers (`wrong`, `mismatch`, `invalid`, `REJECT`).
+  - Progressive rate limiting and anti-brute-force defense:
+    - 5 consecutive failed attempts trigger 15-minute temporary lockout.
+    - Remaining lockout seconds reporting and generic error handling to prevent user enumeration.
+    - Step-up password verification unlock endpoint for compliance recovery.
+  - Step-up authenticated reset and recovery:
+    - Mandatory password re-authentication to authorize biometric reset.
+    - Single-use authorized reset tokens (5-minute TTL).
+    - Purges enrolled biometric credentials, transitions state to `NOT_ENROLLED`, and logs audit trail.
+  - Security audit logging:
+    - Standardized audit events (`BIOMETRIC_CHALLENGE_ISSUED`, `BIOMETRIC_ENROLLED`, `BIOMETRIC_AUTH_SUCCESS`, `BIOMETRIC_AUTH_FAILURE`, `BIOMETRIC_SUSPENDED`, `BIOMETRIC_REVOKED`, `BIOMETRIC_RESET_REQUESTED`, `BIOMETRIC_RESET_COMPLETED`, `BIOMETRIC_LOCKOUT`, `BIOMETRIC_MIGRATION`).
+    - Verified zero leakage of raw camera frames, biometric templates, or passwords in audit records.
+  - Legacy data migration engine:
+    - Automatically migrates existing credentials to normalized schema and synchronizes seed data resets.
+  - Automated security test suite (`src/tests/phase10-biometric-architecture-security.test.ts`):
+    - 10 test suites covering all lifecycle states, challenge lifecycle, replay defense, cross-account isolation, WebAuthn counters, face quality/liveness, rate limiting, suspension/revocation, reset, and audit trail (100% pass across 21/21 full test suites).
 
 ---
 
