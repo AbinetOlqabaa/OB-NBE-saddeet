@@ -61,22 +61,34 @@ function base64ToBuffer(base64: string): ArrayBuffer {
 }
 
 /**
- * Computes a lightweight facial visual feature checksum from canvas pixel data
+ * Computes a standardized optical feature vector from canvas pixel data
  */
 export function computeFaceHashFromImageData(imageData: ImageData): string {
+  if (cameraService && typeof cameraService.computeOpticalHash === 'function') {
+    return cameraService.computeOpticalHash(imageData);
+  }
   const data = imageData.data;
-  let hash1 = 0x811c9dc5;
-  let hash2 = 0x5a17e29b;
-  // Sample every 16th pixel for performance and stable hash
-  for (let i = 0; i < data.length; i += 16) {
+  let rSum = 0;
+  let gSum = 0;
+  let bSum = 0;
+  let lumSum = 0;
+  const len = data.length;
+  const step = 4 * 16;
+  for (let i = 0; i < len; i += step) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-    hash1 = (hash1 ^ lum) * 0x01000193;
-    hash2 = (hash2 ^ (lum * 31)) * 0x01000193;
+    rSum += r;
+    gSum += g;
+    bSum += b;
+    lumSum += 0.299 * r + 0.587 * g + 0.114 * b;
   }
-  return `face_sig_${Math.abs(hash1).toString(16)}_${Math.abs(hash2).toString(16)}`;
+  const count = len / step;
+  const avgR = Math.round(rSum / count);
+  const avgG = Math.round(gSum / count);
+  const avgB = Math.round(bSum / count);
+  const avgLum = Math.round(lumSum / count);
+  return `face_optical_${avgR}_${avgG}_${avgB}_lum_${avgLum}_dim_${imageData.width}x${imageData.height}`;
 }
 
 /**

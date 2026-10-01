@@ -25,6 +25,7 @@ export interface BiometricCredential {
   enrolledAt: string;
   deviceLabel: string;
   faceHash?: string;
+  rawVectorChecksum?: string;
   publicKey?: string;
 }
 

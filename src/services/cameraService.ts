@@ -566,7 +566,7 @@ class CameraService {
   /**
    * Computes deterministic salted optical hash from image pixel data
    */
-  private computeOpticalHash(imageData: ImageData): string {
+  public computeOpticalHash(imageData: ImageData): string {
     const data = imageData.data;
     let rSum = 0;
     let gSum = 0;

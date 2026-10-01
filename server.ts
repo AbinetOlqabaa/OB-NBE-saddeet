@@ -1190,6 +1190,26 @@ app.post('/api/auth/biometrics/admin/unlock', (req, res) => {
   }
 });
 
+// 12d. Biometric Matching Threshold & Optical Governance Settings (Phase 17)
+app.get('/api/auth/biometrics/settings', (req, res) => {
+  const settings = biometricService.getBiometricSettings();
+  res.json({ success: true, settings });
+});
+
+app.post('/api/auth/biometrics/settings', (req, res) => {
+  const { adminEmail, settings } = req.body;
+  if (!adminEmail || !settings) {
+    res.status(400).json({ success: false, message: 'adminEmail and settings payload required.' });
+    return;
+  }
+  const result = biometricService.updateBiometricSettings(settings, adminEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(403).json(result);
+  }
+});
+
 // 13. Unlock Rate Limited Lockout via Step-Up Password
 app.post('/api/auth/biometrics/unlock', (req, res) => {
   const { email, password } = req.body;

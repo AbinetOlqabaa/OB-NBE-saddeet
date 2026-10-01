@@ -93,6 +93,13 @@ export class BiometricServiceClass {
   private rateLimits: Map<string, BiometricRateLimitState> = new Map();
   private serviceStartedAt: number = Date.now();
 
+  // Phase 17: Administrator Biometric Matching Threshold & Optical Governance
+  private matchingThreshold: number = 65; // Balanced default (Euclidean <= 65, ~75% confidence)
+  private minQualityThreshold: number = 0.40; // Minimum acceptable optical quality score
+  private matchingPreset: 'STRICT' | 'BALANCED' | 'TOLERANT' | 'CUSTOM' = 'BALANCED';
+  private thresholdSettingsUpdatedAt?: string;
+  private thresholdSettingsUpdatedBy?: string;
+
   constructor() {
     // Initial data migration from existing seed/user accounts
     this.migrateLegacyCredentials();
@@ -930,7 +937,8 @@ export class BiometricServiceClass {
     }
 
     // Compute non-invertible protected face signature
-    const vectorHash = computeProtectedFaceSignature(featureVector);
+    const vectorStr = Array.isArray(featureVector) ? featureVector.join(',') : String(featureVector);
+    const vectorHash = computeProtectedFaceSignature(vectorStr);
 
     // Phase 11 Identity Safeguards: Prevent duplicate biometric template across different accounts
     const existingOtherFaceCred = Array.from(this.credentials.values()).find(
@@ -977,6 +985,7 @@ export class BiometricServiceClass {
       enrolledAt: new Date().toISOString(),
       faceTemplate: {
         vectorHash,
+        rawVectorChecksum: vectorStr,
         qualityScore: quality.qualityScore,
         livenessPassed: true,
         createdAt: new Date().toISOString(),
@@ -991,6 +1000,7 @@ export class BiometricServiceClass {
       type: 'FACE',
       credentialId: newRecord.credentialId,
       faceHash: vectorHash,
+      rawVectorChecksum: vectorStr,
       deviceLabel: newRecord.deviceLabel,
       enrolledAt: newRecord.enrolledAt,
     });
@@ -1159,6 +1169,9 @@ export class BiometricServiceClass {
       sampleStr === enrolled.faceTemplate.vectorHash ||
       sampleStr === enrolled.faceTemplate.rawVectorChecksum;
 
+    let computedDistance: number | null = null;
+    let confidencePercent: number = 100;
+
     // Optical geometric tolerance matching for physical hardware camera feeds (e.g. tablet / mobile / webcam)
     if (!templateMatch && !isExplicitMismatch) {
       const sampleOptical = this.parseOpticalVector(sampleStr);
@@ -1170,11 +1183,13 @@ export class BiometricServiceClass {
         const db = sampleOptical.b - enrolledOptical.b;
         const dlum = sampleOptical.lum - enrolledOptical.lum;
         const euclideanDist = Math.sqrt(dr * dr + dg * dg + db * db + dlum * dlum);
+        computedDistance = Math.round(euclideanDist * 10) / 10;
 
-        // Maximum allowed distance is 36 units (approx 86% biometric confidence threshold)
+        // Compare against administrator-configured threshold (Default Balanced <= 65)
         // Per NBE Directive BSD/03/2020: Tolerates natural micro-variance in ambient illumination and sensor noise on physical devices
-        if (euclideanDist <= 36) {
+        if (euclideanDist <= this.matchingThreshold) {
           templateMatch = true;
+          confidencePercent = Math.max(60, Math.min(99, Math.round(100 - (euclideanDist / this.matchingThreshold) * 35)));
         }
       }
     }
@@ -1187,7 +1202,7 @@ export class BiometricServiceClass {
         actorRole: user.role,
         action: 'BIOMETRIC_AUTH_FAILURE',
         entityId: user.id,
-        details: `Facial verification rejected: signature mismatch.`,
+        details: `Facial verification rejected: signature mismatch${computedDistance !== null ? ` (distance: ${computedDistance}, threshold: ${this.matchingThreshold})` : ''}.`,
       });
       return {
         success: false,
@@ -1200,6 +1215,15 @@ export class BiometricServiceClass {
     enrolled.lastUsedAt = new Date().toISOString();
     user.lastLoginAt = new Date().toISOString();
     this.recordSuccess(norm);
+
+    this.logAudit({
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      action: 'BIOMETRIC_AUTH_SUCCESS',
+      entityId: user.id,
+      details: `Face biometric authentication verified for ${user.email} (Confidence: ${confidencePercent}%${computedDistance !== null ? `, distance: ${computedDistance}/${this.matchingThreshold}` : ''}).`,
+    });
 
     let redirectTab = 'MAKER_WORKSPACE';
     if (user.role === 'ADMIN') redirectTab = 'ADMIN_DASHBOARD';
@@ -1805,6 +1829,95 @@ export class BiometricServiceClass {
     });
 
     return { success: true, message: `Biometric lockout cleared for ${norm}.` };
+  }
+
+  // =========================================================================
+  // 7. ADMINISTRATOR BIOMETRIC THRESHOLD & OPTICAL GOVERNANCE (PHASE 17)
+  // =========================================================================
+
+  /**
+   * Retrieves current biometric matching threshold settings and policy.
+   */
+  public getBiometricSettings(): {
+    matchingThreshold: number;
+    minQualityThreshold: number;
+    preset: 'STRICT' | 'BALANCED' | 'TOLERANT' | 'CUSTOM';
+    description: string;
+    lastUpdated?: string;
+    updatedBy?: string;
+  } {
+    return {
+      matchingThreshold: this.matchingThreshold,
+      minQualityThreshold: this.minQualityThreshold,
+      preset: this.matchingPreset,
+      description:
+        this.matchingPreset === 'STRICT'
+          ? 'NBE Strict Vault Grade (Euclidean <= 36, ~86% confidence) - High security, requires controlled lighting.'
+          : this.matchingPreset === 'BALANCED'
+          ? 'Commercial Banking Balanced (Euclidean <= 65, ~75% confidence) - Recommended default, accommodates natural lighting shifts on mobile/webcams.'
+          : this.matchingPreset === 'TOLERANT'
+          ? 'Adaptive Ambient Light / Mobile Tablets (Euclidean <= 85, ~65% confidence) - High tolerance for strong backlighting or reflections.'
+          : `Custom Administrator Threshold (Euclidean <= ${this.matchingThreshold})`,
+      lastUpdated: this.thresholdSettingsUpdatedAt,
+      updatedBy: this.thresholdSettingsUpdatedBy,
+    };
+  }
+
+  /**
+   * Updates biometric matching threshold policy (ADMIN role enforced).
+   */
+  public updateBiometricSettings(
+    settings: {
+      matchingThreshold?: number;
+      minQualityThreshold?: number;
+      preset?: 'STRICT' | 'BALANCED' | 'TOLERANT' | 'CUSTOM';
+    },
+    adminEmail: string
+  ): { success: boolean; settings: any; message: string } {
+    const admin = userService.getByEmail(adminEmail);
+    if (!admin || admin.role !== 'ADMIN') {
+      return {
+        success: false,
+        settings: this.getBiometricSettings(),
+        message: 'Security violation: Only Compliance Administrators can alter biometric threshold governance.',
+      };
+    }
+
+    if (settings.preset === 'STRICT') {
+      this.matchingThreshold = 36;
+      this.matchingPreset = 'STRICT';
+    } else if (settings.preset === 'BALANCED') {
+      this.matchingThreshold = 65;
+      this.matchingPreset = 'BALANCED';
+    } else if (settings.preset === 'TOLERANT') {
+      this.matchingThreshold = 85;
+      this.matchingPreset = 'TOLERANT';
+    } else if (typeof settings.matchingThreshold === 'number') {
+      this.matchingThreshold = Math.max(20, Math.min(120, Math.round(settings.matchingThreshold)));
+      this.matchingPreset = 'CUSTOM';
+    }
+
+    if (typeof settings.minQualityThreshold === 'number') {
+      this.minQualityThreshold = Math.max(0.2, Math.min(0.8, settings.minQualityThreshold));
+    }
+
+    this.thresholdSettingsUpdatedAt = new Date().toISOString();
+    this.thresholdSettingsUpdatedBy = admin.email;
+
+    this.logAudit({
+      actorId: admin.id,
+      actorName: admin.name,
+      actorRole: admin.role,
+      action: 'BIOMETRIC_DEVICE_UPDATED',
+      entityId: 'BIOMETRIC_GOVERNANCE',
+      details: `[NBE Directive BSD/03/2020 Compliance] Administrator ${admin.email} updated biometric matching policy to ${this.matchingPreset} (Threshold: ${this.matchingThreshold}, Min Quality: ${this.minQualityThreshold}).`,
+    });
+
+    return {
+      success: true,
+      settings: this.getBiometricSettings(),
+      message: `Biometric threshold governance updated successfully to ${this.matchingPreset}.`,
+    };
   }
 
   /**
