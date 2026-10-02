@@ -2675,7 +2675,7 @@ app.post('/api/bulk/export', (req, res) => {
 });
 
 // System Health
-app.get('/api/health', (req, res) => {
+const healthHandler = (_req: express.Request, res: express.Response) => {
   res.json({
     status: 'ONLINE',
     service: 'Oromia Bank NBE Platform',
@@ -2685,7 +2685,10 @@ app.get('/api/health', (req, res) => {
     uptimeSeconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
-});
+};
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler);
+app.get('/healthz', healthHandler);
 
 // -------------------------------------------------------------
 // DEV / PROD SERVER BOOTSTRAP
