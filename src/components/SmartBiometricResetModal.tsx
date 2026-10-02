@@ -54,7 +54,8 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
   const [userRole, setUserRole] = useState<string>('');
   const [hasFaceId, setHasFaceId] = useState<boolean>(false);
   const [hasFingerprint, setHasFingerprint] = useState<boolean>(false);
-  const [rateLimitInfo, setRateLimitInfo] = useState<{ isLocked: boolean; remainingSec: number } | null>(null);
+  const [rateLimitInfo, setRateLimitInfo] = useState<{ isLocked: boolean; remainingSec: number; failedAttempts?: number } | null>(null);
+  const [remainingTrialsNotice, setRemainingTrialsNotice] = useState<number | null>(null);
 
   // Selection & Execution
   const [selectedTarget, setSelectedTarget] = useState<'FACE' | 'FINGERPRINT' | 'ALL'>('FACE');
@@ -65,6 +66,31 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
 
   const { removeBiometric, refreshEnrolledStatus } = useBiometricAuth();
 
+  // Active live lockout countdown timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (rateLimitInfo && rateLimitInfo.isLocked && rateLimitInfo.remainingSec > 0) {
+      interval = setInterval(() => {
+        setRateLimitInfo((prev) => {
+          if (!prev || !prev.isLocked) return null;
+          const nextSec = prev.remainingSec - 1;
+          if (nextSec <= 0) {
+            // Lockout expired: auto-reset to default
+            if (emailInput.trim()) {
+              biometricService.resetRateLimit(emailInput.trim());
+              checkUserBiometricStatus(emailInput.trim());
+            }
+            return null;
+          }
+          return { ...prev, remainingSec: nextSec };
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [rateLimitInfo?.isLocked, rateLimitInfo?.remainingSec, emailInput]);
+
   // On open or email change, inspect user status
   useEffect(() => {
     if (isOpen) {
@@ -73,6 +99,7 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
       setStep('DISCOVER');
       setExecutionError(null);
       setSuccessNotice(null);
+      setRemainingTrialsNotice(null);
       if (initialEmail.trim()) {
         checkUserBiometricStatus(initialEmail.trim());
       } else {
@@ -91,8 +118,15 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
       return;
     }
 
+    if (!norm.includes('@') || !norm.endsWith('@oromiabank.com')) {
+      setUserStatusError('Corporate email domain (@oromiabank.com) is strictly required for biometric lifecycle administration.');
+      setUserExists(null);
+      return;
+    }
+
     setIsLoadingStatus(true);
     setUserStatusError(null);
+    setExecutionError(null);
 
     try {
       let stateData: any = null;
@@ -110,7 +144,16 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
       const user = userService.getByEmail(norm);
       if (!user) {
         setUserExists(false);
-        setUserStatusError(`Account "${norm}" was not found in the Oromia Bank directory.`);
+        setUserStatusError(`Officer account "${norm}" was not found in the Oromia Bank directory.`);
+        setHasFaceId(false);
+        setHasFingerprint(false);
+        setIsLoadingStatus(false);
+        return;
+      }
+
+      if (user.status !== 'ACTIVE') {
+        setUserExists(false);
+        setUserStatusError(`Account "${norm}" is not active (Status: ${user.status}). Biometric reset is unavailable.`);
         setHasFaceId(false);
         setHasFingerprint(false);
         setIsLoadingStatus(false);
@@ -140,6 +183,7 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
         setRateLimitInfo({
           isLocked: true,
           remainingSec: stateData.rateLimit.remainingLockoutSec || 900,
+          failedAttempts: stateData.rateLimit.failedAttempts || 5,
         });
       } else {
         setRateLimitInfo(null);
@@ -164,6 +208,10 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
     const norm = emailInput.toLowerCase().trim();
     if (!norm) {
       setExecutionError('Corporate email is required.');
+      return;
+    }
+    if (!norm.endsWith('@oromiabank.com')) {
+      setExecutionError('Corporate email (@oromiabank.com) is strictly required.');
       return;
     }
     if (!passwordInput) {
@@ -201,6 +249,18 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
       }
 
       if (!reqResult.success || !reqResult.resetToken) {
+        if (reqResult.lockedOut) {
+          setRateLimitInfo({
+            isLocked: true,
+            remainingSec: reqResult.remainingLockoutSec || 900,
+            failedAttempts: 5,
+          });
+          throw new Error(reqResult.message || 'Service denied: Account temporarily locked due to repetitive failed trials.');
+        }
+
+        if (typeof reqResult.remainingAttempts === 'number') {
+          setRemainingTrialsNotice(reqResult.remainingAttempts);
+        }
         throw new Error(reqResult.message || 'Invalid institutional password or authorization failed.');
       }
 
@@ -342,12 +402,27 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
                 </div>
               )}
 
-              {rateLimitInfo && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-200">
+              {rateLimitInfo && rateLimitInfo.isLocked && (
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-300 dark:border-rose-800 rounded-2xl flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-200 animate-in fade-in">
                   <Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <p className="leading-snug">
-                    Account is locked due to consecutive authentication failures. Providing valid institutional password below will authorize reset and unlock the account.
-                  </p>
+                  <div className="space-y-1">
+                    <p className="font-bold">
+                      Service Denied — Account Temporarily Locked
+                    </p>
+                    <p className="leading-snug text-[11px] text-rose-700 dark:text-rose-300">
+                      Service denial triggered due to {rateLimitInfo.failedAttempts || 5} consecutive failed trials. Service will automatically reset to default in{' '}
+                      <span className="font-mono font-bold underline">{rateLimitInfo.remainingSec}s</span>.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {remainingTrialsNotice !== null && remainingTrialsNotice > 0 && !rateLimitInfo?.isLocked && (
+                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center gap-2 text-xs text-amber-800 dark:text-amber-200">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-medium">
+                    Warning: <strong>{remainingTrialsNotice}</strong> acceptable trial(s) remaining before temporary service denial.
+                  </span>
                 </div>
               )}
 
@@ -564,13 +639,18 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
                       <button
                         type="button"
                         onClick={handleExecuteReset}
-                        disabled={isExecuting || !passwordInput}
+                        disabled={isExecuting || !passwordInput || Boolean(rateLimitInfo?.isLocked)}
                         className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-50 touch-press"
                       >
                         {isExecuting ? (
                           <>
                             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                             <span>Verifying & Revoking Passkeys...</span>
+                          </>
+                        ) : rateLimitInfo?.isLocked ? (
+                          <>
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Service Denied (Cooldown: {rateLimitInfo.remainingSec}s)</span>
                           </>
                         ) : (
                           <>

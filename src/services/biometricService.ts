@@ -1546,8 +1546,13 @@ export class BiometricServiceClass {
     return { success: true, message: `Device renamed to "${trimmed}".`, credential: cred };
   }
 
+  public resetRateLimit(email: string): void {
+    const norm = email.toLowerCase().trim();
+    this.rateLimits.delete(norm);
+  }
+
   /**
-   * Initiates biometric reset with mandatory step-up password authentication.
+   * Initiates biometric reset with mandatory corporate email validation and step-up password authentication.
    * Protects reset from stolen sessions, takeover, replay, and cross-user tampering.
    */
   public requestReset(
@@ -1562,24 +1567,60 @@ export class BiometricServiceClass {
     message?: string;
     consequences?: string;
     targetUser?: { id: string; name: string; email: string };
+    lockedOut?: boolean;
+    remainingLockoutSec?: number;
+    remainingAttempts?: number;
   } {
-    const norm = email.toLowerCase().trim();
+    const norm = (email || '').toLowerCase().trim();
 
-    // Check progressive rate limits on the target account
+    // 1. Corporate email validation
+    if (!norm || !norm.includes('@') || !norm.endsWith('@oromiabank.com')) {
+      return {
+        success: false,
+        message: 'Corporate email format required (must end with @oromiabank.com) for biometric lifecycle administration.',
+      };
+    }
+
+    // 2. Check progressive rate limits / service denial on the target account
     const rateCheck = this.checkRateLimit(norm);
     if (rateCheck.isLocked) {
       return {
         success: false,
-        message: `Account is temporarily locked due to excessive failed attempts. Please try again after lockout expires or contact compliance administration.`,
+        lockedOut: true,
+        remainingLockoutSec: rateCheck.remainingLockoutSec,
+        remainingAttempts: 0,
+        message: `Service denied: Account is temporarily locked due to excessive failed attempts (${rateCheck.failedAttempts}/${MAX_FAILED_ATTEMPTS}). Service will automatically reset to default in ${rateCheck.remainingLockoutSec}s.`,
       };
     }
 
     const user = userService.getByEmail(norm);
     if (!user) {
-      return { success: false, message: 'User not found.' };
+      const failResult = this.recordFailure(norm, type === 'ALL' ? 'FINGERPRINT' : type, 'Account not found in directory');
+      const remainingTrials = Math.max(0, MAX_FAILED_ATTEMPTS - failResult.failedAttempts);
+      if (failResult.isLocked) {
+        return {
+          success: false,
+          lockedOut: true,
+          remainingLockoutSec: failResult.remainingLockoutSec,
+          remainingAttempts: 0,
+          message: `Service denied: Account has exceeded acceptable trials (${MAX_FAILED_ATTEMPTS}/${MAX_FAILED_ATTEMPTS}) and is temporarily locked. Service will automatically reset to default in ${failResult.remainingLockoutSec}s.`,
+        };
+      }
+      return {
+        success: false,
+        remainingAttempts: remainingTrials,
+        message: `No active officer account registered with corporate email "${norm}". (${remainingTrials} trial(s) remaining before temporary service denial)`,
+      };
     }
 
-    // Cross-user deletion / IDOR defense: Actor must be target user or ADMIN
+    if (user.status !== 'ACTIVE') {
+      return {
+        success: false,
+        message: `Officer account "${norm}" is not active (Status: ${user.status}). Biometric reset unavailable.`,
+      };
+    }
+
+    // 3. Cross-user deletion / IDOR defense: Actor must be target user or ADMIN
     const isSelf = !actorEmail || actorEmail.toLowerCase().trim() === norm;
     let actor = user;
     if (!isSelf) {
@@ -1601,7 +1642,7 @@ export class BiometricServiceClass {
       actor = actorUser;
     }
 
-    // Verify existing enrollment before allowing reset
+    // 4. Verify existing enrollment before allowing reset
     const userCreds = Array.from(this.credentials.values()).filter(
       (c) => c.userId === user.id && (c.status === 'ENROLLED' || c.status === 'SUSPENDED')
     );
@@ -1627,28 +1668,41 @@ export class BiometricServiceClass {
       };
     }
 
-    // Step-up password verification
+    // 5. Step-up password verification with trials decrement
     const expectedPassword = isSelf ? user.password : actor.password;
     if (expectedPassword !== password) {
-      this.recordFailure(norm);
+      const failResult = this.recordFailure(norm, type === 'ALL' ? 'FINGERPRINT' : type, 'Failed step-up password authentication for reset');
+      const remainingTrials = Math.max(0, MAX_FAILED_ATTEMPTS - failResult.failedAttempts);
       this.logAudit({
         actorId: actor.id,
         actorName: actor.name,
         actorRole: actor.role,
         action: 'BIOMETRIC_AUTH_FAILURE',
         entityId: user.id,
-        details: `Failed step-up password authentication for biometric reset on account ${user.email}.`,
+        details: `Failed step-up password authentication for biometric reset on account ${user.email}. Attempt ${failResult.failedAttempts}/${MAX_FAILED_ATTEMPTS}.`,
       });
+
+      if (failResult.isLocked) {
+        return {
+          success: false,
+          lockedOut: true,
+          remainingLockoutSec: failResult.remainingLockoutSec,
+          remainingAttempts: 0,
+          message: `Service denied: Account has exceeded acceptable trials (${MAX_FAILED_ATTEMPTS}/${MAX_FAILED_ATTEMPTS}) and is temporarily locked. Service will automatically reset to default in ${failResult.remainingLockoutSec}s.`,
+        };
+      }
+
       return {
         success: false,
-        message: 'Invalid password. Step-up authentication required to reset biometrics.',
+        remainingAttempts: remainingTrials,
+        message: `Invalid password. ${remainingTrials} trial(s) remaining before temporary service denial.`,
       };
     }
 
-    // Clear failed attempts upon successful password verification
+    // 6. Clear failed attempts upon successful authentication - resets rate limits back to default
     this.recordSuccess(norm);
 
-    // Consequences explanation
+    // 7. Consequences explanation
     const consequences =
       type === 'FACE'
         ? 'Resetting Face ID permanently invalidates the enrolled facial vector template. Cached device authorizations will be purged, requiring an in-person optical camera re-scan to re-enable facial biometric sign-in.'

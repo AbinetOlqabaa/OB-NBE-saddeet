@@ -368,7 +368,7 @@ class UserServiceClass {
       return { success: false, message: 'An account with this email address already exists.' };
     }
 
-    const newId = `usr_${data.role.toLowerCase()}_${Date.now()}`;
+    const newId = `usr_${data.role.toLowerCase()}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newUser: UserAccount = {
       id: newId,
       name: data.name.trim(),

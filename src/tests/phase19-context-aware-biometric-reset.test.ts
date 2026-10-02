@@ -145,13 +145,44 @@ export async function runPhase19ContextAwareBiometricResetTests() {
   assert(afterAllState.faceState === 'NOT_ENROLLED', 'Face state cleared');
   assert(afterAllState.fingerprintState === 'NOT_ENROLLED', 'Fingerprint state cleared');
 
-  console.log('\n--- 5. Step-Up Password Security Enforcement ---');
-  // Attempt reset on non-enrolled user
-  const nonEnrolledAttempt = biometricService.requestReset(freshEmail, 'FACE', 'password', 'Attempt on non-enrolled');
-  assert(!nonEnrolledAttempt.success, 'Reset request on non-enrolled user is gracefully rejected');
-  assert(nonEnrolledAttempt.message?.includes('No enrolled Face ID'), 'Clear guidance that no enrolled Face ID exists');
+  console.log('\n--- 5. Corporate Email Validation & Matching Security ---');
+  // 5A: Non-corporate email rejection
+  const nonCorpAttempt = biometricService.requestReset(
+    'officer@gmail.com',
+    'FACE',
+    'password',
+    'Unauthorized external email'
+  );
+  assert(!nonCorpAttempt.success, 'Non-corporate email rejected for biometric reset');
+  assert(
+    nonCorpAttempt.message?.includes('Corporate email format required'),
+    'Clear notification explaining corporate email requirement (@oromiabank.com)'
+  );
 
-  // Attempt reset on enrolled user with invalid password
+  // 5B: Malformed email string
+  const malformedAttempt = biometricService.requestReset(
+    'invalid-email-format',
+    'FACE',
+    'password',
+    'Malformed email'
+  );
+  assert(!malformedAttempt.success, 'Malformed email rejected for biometric reset');
+
+  // 5C: Non-existent corporate email in directory
+  const nonExistentEmail = `unknown_officer_${Date.now()}@oromiabank.com`;
+  const nonExistentAttempt = biometricService.requestReset(
+    nonExistentEmail,
+    'FACE',
+    'password',
+    'Non existent account'
+  );
+  assert(!nonExistentAttempt.success, 'Non-existent corporate user rejected');
+  assert(
+    nonExistentAttempt.message?.includes('No active officer account registered'),
+    'Diagnostic message indicating user account not found in directory'
+  );
+
+  console.log('\n--- 6. Step-Up Password Verification & Remaining Trials Feedback ---');
   const enrolledUserEmail = `enrolled_pw_${Date.now()}@oromiabank.com`;
   const regUser = userService.register({
     email: enrolledUserEmail,
@@ -164,9 +195,100 @@ export async function runPhase19ContextAwareBiometricResetTests() {
   const pwFaceCh = biometricService.createChallenge(enrolledUserEmail, 'FACE', 'REGISTRATION');
   biometricService.enrollFaceBiometric(enrolledUserEmail, pwFaceCh.id, 'face_optical_130_130_130_lum_130');
 
-  const badPwAttempt = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_2026', 'Unauthorized attempt');
-  assert(!badPwAttempt.success, 'Reset request with invalid password on enrolled user is strictly rejected');
-  assert(badPwAttempt.message?.includes('Invalid password'), 'Explicit invalid password failure message returned');
+  // Attempt 1 with wrong password
+  const badPw1 = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_1', 'Trial 1');
+  assert(!badPw1.success, 'Invalid password attempt 1 rejected');
+  assert(badPw1.remainingAttempts === 4, 'Remaining acceptable trials correctly reported as 4');
+  assert(badPw1.message?.includes('4 trial(s) remaining'), 'Error notification contains remaining trials');
+
+  // Attempt 2 with wrong password
+  const badPw2 = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_2', 'Trial 2');
+  assert(!badPw2.success, 'Invalid password attempt 2 rejected');
+  assert(badPw2.remainingAttempts === 3, 'Remaining acceptable trials correctly reported as 3');
+
+  // Attempt 3 with wrong password
+  const badPw3 = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_3', 'Trial 3');
+  assert(!badPw3.success, 'Invalid password attempt 3 rejected');
+  assert(badPw3.remainingAttempts === 2, 'Remaining acceptable trials correctly reported as 2');
+
+  // Attempt 4 with wrong password
+  const badPw4 = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_4', 'Trial 4');
+  assert(!badPw4.success, 'Invalid password attempt 4 rejected');
+  assert(badPw4.remainingAttempts === 1, 'Remaining acceptable trials correctly reported as 1');
+
+  console.log('\n--- 7. Repetitive Failure Service Denial (Account Lockout) ---');
+  // Attempt 5 with wrong password (triggers service denial)
+  const badPw5 = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_5', 'Trial 5 (Threshold)');
+  assert(!badPw5.success, 'Trial 5 strictly rejected');
+  assert(badPw5.lockedOut === true, 'Service denial / lockout triggered after 5 repetitive failed trials');
+  assert(typeof badPw5.remainingLockoutSec === 'number' && badPw5.remainingLockoutSec > 0, 'Lockout countdown seconds returned');
+  assert(badPw5.message?.includes('Service denied'), 'Explicit "Service denied" notification displayed');
+
+  // Subsequent attempt during active service denial is blocked immediately
+  const lockedAttempt = biometricService.requestReset(enrolledUserEmail, 'FACE', 'password', 'Attempt during lockout');
+  assert(!lockedAttempt.success, 'Attempt during active service denial is rejected even with valid password');
+  assert(lockedAttempt.lockedOut === true, 'Locked out status confirmed');
+  assert(lockedAttempt.message?.includes('Service denied'), 'Service denial message displayed during lockout');
+
+  console.log('\n--- 8. Service Denial Expiration & Auto-Reset to Default ---');
+  // Simulate passage of service denial moment / lockout expiration
+  biometricService.resetRateLimit(enrolledUserEmail);
+  const defaultRateState = biometricService.checkRateLimit(enrolledUserEmail);
+  assert(!defaultRateState.isLocked, 'Rate limit state is no longer locked after reset to default');
+  assert(defaultRateState.failedAttempts === 0, 'Failed attempts reset to default (0)');
+
+  // Legitimate user now successfully authenticates with valid credentials
+  const validResetReq = biometricService.requestReset(
+    enrolledUserEmail,
+    'FACE',
+    'password',
+    'Post-lockout authorized reset'
+  );
+  assert(validResetReq.success, 'Reset request succeeds after service denial reset to default');
+  assert(Boolean(validResetReq.resetToken), 'One-time cryptographic reset token issued');
+
+  // Execute reset with issued token
+  const validExec = biometricService.executeReset(enrolledUserEmail, validResetReq.resetToken!);
+  assert(validExec.success, 'Biometric reset executes successfully');
+  assert(validExec.revokedCount === 1, 'Credential revoked');
+
+  // Token anti-replay protection
+  const replayExec = biometricService.executeReset(enrolledUserEmail, validResetReq.resetToken!);
+  assert(!replayExec.success, 'Single-use token cannot be re-consumed (anti-replay defense)');
+
+  console.log('\n--- 9. Cross-User IDOR Tampering Prevention ---');
+  const otherUserEmail = `target_user_${Date.now()}@oromiabank.com`;
+  const regOther = userService.register({
+    email: otherUserEmail,
+    name: 'Target Officer',
+    role: 'MAKER',
+    department: 'Credit Operations',
+    employeeId: `EMP_OTHER_${Date.now()}`,
+  });
+  if (regOther.user) userService.updateUserStatus(regOther.user.id, 'ACTIVE', 'Super Admin');
+  const otherCh = biometricService.createChallenge(otherUserEmail, 'FACE', 'REGISTRATION');
+  const otherEnroll = biometricService.enrollFaceBiometric(otherUserEmail, otherCh.id, 'face_optical_168_172_175_lum_145');
+  assert(otherEnroll.success, 'Face enrolled for target user');
+
+  const attackerEmail = `attacker_${Date.now()}@oromiabank.com`;
+  const regAttacker = userService.register({
+    email: attackerEmail,
+    name: 'Malicious Maker',
+    role: 'MAKER',
+    department: 'Credit Operations',
+    employeeId: `EMP_ATT_${Date.now()}`,
+  });
+  if (regAttacker.user) userService.updateUserStatus(regAttacker.user.id, 'ACTIVE', 'Super Admin');
+
+  const crossUserAttempt = biometricService.requestReset(
+    otherUserEmail,
+    'FACE',
+    'password',
+    'Cross-user deletion attempt',
+    attackerEmail
+  );
+  assert(!crossUserAttempt.success, 'Unauthorized cross-user reset attempt strictly blocked (IDOR defense)');
+  assert(crossUserAttempt.message?.includes('Cross-user biometric reset unauthorized'), 'Security violation error returned');
 
   console.log('\n========================================================================');
   console.log('✅ ALL PHASE 19 CONTEXT-AWARE BIOMETRIC RESET TESTS PASSED');
