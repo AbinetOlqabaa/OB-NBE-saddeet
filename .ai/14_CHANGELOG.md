@@ -4,6 +4,185 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [26.0.0-phase26-library-role-based-workflows-and-deletion-governance] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 26: Library Role-Based Workflows and Deletion Governance (`MakerLibraryView.tsx`, `submissionService.ts`, `effectiveAccessEngine.ts`, `regulatory.ts`, `auditService.ts`, `server.ts`, `App.tsx`, `Sidebar.tsx`, `BottomNavigation.tsx`, `MobileBottomNav.tsx`, `phase26-library-role-based-workflows-and-deletion-governance.test.ts`)**:
+  - **Comprehensive Multi-Role Library Expansion (Requirement 1, 2, 3)**:
+    - **Checker Review Library & 4-Eyes Queue**:
+      - Displays strictly authorized departmental review records; cross-department isolation enforced at backend server query level.
+      - Integrated review action modal: 4-eyes principle inspection, Approve (`APPROVE`), Return for Correction (`REQUEST_CORRECTION`), and Reject (`REJECT`) with mandatory justification.
+      - Compliance Flagging: toggle flag status with reason, tracking `flagged`, `flagReason`, `flaggedBy`, and `flaggedAt`.
+      - Checker queries and notes: append review query notes (`CHECKER_QUERY`, `CORRECTION_NOTE`).
+      - Library access strictly forbids Checker from editing report figures or creating drafts.
+    - **Auditor Regulatory Repository & Dossiers**:
+      - Independent supervisory examination with universal bank-wide dossier inspection across all departments and report types.
+      - Dossier History & Event Trail Inspector: view snapshot history with version iterations, historical data snapshots, integrity hashes, review note threads, and immutable audit logs.
+      - Supervisory audit findings: append official supervisory audit notes (`AUDIT`).
+      - Operational mutation (editing drafts, creating returns, or deleting records) is strictly forbidden for Auditors (`ROLE_FORBIDDEN`).
+    - **Administrator Institutional Library & Governance**:
+      - Comprehensive institutional oversight across all banking returns.
+      - Governed lifecycle disposition: removal impact assessment, regulatory retention warnings, governed archival (`ARCHIVE`) and voiding (`VOID`) preserving historical snapshots and audit trail.
+      - Destruction of submitted statutory returns is strictly prohibited; unsubmitted drafts can be purged under administrative authorization.
+  - **Effective Access Engine Integration (Requirement 4)**:
+    - Extended `effectiveAccessEngine.evaluateSubmissionAccess()` to enforce submission-level permissions across actions: `VIEW`, `CREATE_DRAFT`, `EDIT_DRAFT`, `DELETE_DRAFT`, `REVIEW`, `APPROVE`, `REJECT`, `REQUEST_CORRECTION`, `EXPORT_XLSX`, `AUDIT_INSPECT`, `INSPECT_HISTORY`, `COMMENT`, `FLAG`, `ADMIN_ARCHIVE`, `ADMIN_VOID`.
+    - Enforces home department matching, M:N linked departments, direct user report assignments, active special access grants, and account active status.
+    - Special access grants dynamically expand access during valid window; expired grants are strictly rejected.
+  - **Server-Side Permission Filtering & Protection Against Leakage (Requirement 5 & 10)**:
+    - Backend `submissionService.queryLibrary()` filters authorized records before computing counts, statistics, search matching, and pagination.
+    - Stats bar (`all`, `draft`, `inProgress`, `returned`, `submitted`, `reusedCopy`, `archived`, `voided`) reflects only authorized records.
+    - Keyword search operates strictly within the authorized dataset (zero search leakage across departments).
+    - Direct record lookup `GET /api/regulatory/submissions/:id` enforces cross-department authorization (`403 Forbidden` on unauthorized ID access).
+  - **Maker Submitted Record Immutability & Deletion Protections (Requirement 6)**:
+    - Makers cannot delete submitted reports (`PENDING_CHECKER`, `APPROVED`, `SENT`, `SENDING`, `ARCHIVED`, `VOIDED`).
+    - Backend throws `INVALID_WORKFLOW_STATE` error under NBE Directive BSD/03/2020.
+    - Makers can delete only unsubmitted drafts they created or within their assigned department.
+  - **Governed Administrative Archiving & Voiding (Requirements 7 & 8)**:
+    - Under NBE Directive BSD/03/2020 and Banking Supervision Record Retention Mandates, submitted statutory returns cannot be hard-deleted.
+    - `getRemovalImpactAssessment()` provides impact analysis, snapshot counts, audit counts, and regulatory retention warning.
+    - Governed disposition (`adminGovernedRemoveSubmission`) supports `ARCHIVE` and `VOID` actions.
+    - Requires ADMIN role, explicit confirmation checkbox (`confirmed: true`), and detailed regulatory justification (minimum 10 characters).
+    - Preserves all historical snapshots, dynamic rows, and captures authoritative `ADMIN_ARCHIVE_SUBMISSION` or `ADMIN_VOID_SUBMISSION` audit logs.
+  - **Permission Distinction Per Role (Requirement 9)**:
+    - Strict role boundaries across Maker, Checker, Auditor, and Admin for all operations.
+    - Form view mode in `App.tsx` strictly sets `readOnly` for non-makers and non-draft states.
+  - **Automated Acceptance Test Coverage (Requirement 10)**:
+    - Added `src/tests/phase26-library-role-based-workflows-and-deletion-governance.test.ts` with 11 comprehensive test sections and 40+ assertions, integrated into `run-all-tests.ts`.
+    - All tests passing with 100% success rate.
+
+---
+
+## [25.0.0-phase25-library-core-architecture-and-maker-library] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 25: Library Core Architecture & Maker Library (`MakerLibraryView.tsx`, `submissionService.ts`, `regulatory.ts`, `server.ts`, `Sidebar.tsx`, `MakerWorkspace.tsx`, `BottomNavigation.tsx`, `MobileBottomNav.tsx`, `CommandPaletteModal.tsx`, `KeyboardShortcutsModal.tsx`, `phase25-library-core-architecture-maker-library.test.ts`)**:
+  - **First-Class "Library" Sidebar Feature & Hotkey (`Ctrl+L` / `Cmd+L`)**:
+    - Introduced a primary `LIBRARY` navigation view and sidebar entry with `BookOpen` icon, accessible to Makers, Checkers, Auditors, and Admins.
+    - Integrated into Sidebar, Command Palette, Keyboard Shortcuts cheat sheet, and mobile thumb-navigation bars.
+  - **Authoritative Single-Source-of-Truth Architecture (Requirement 1)**:
+    - Library queries live records from `submissionService` and historical snapshots (`SubmissionSnapshot`), eliminating disconnected duplicate databases.
+    - Any changes (create, edit, save, submit, return, reuse, delete) synchronize across the entire application instantly.
+  - **5 Canonical Lifecycle States (Requirement 2)**:
+    - Built `deriveLibraryLifecycleState()` supporting:
+      1. `DRAFT`: Newly created unedited return draft (v1).
+      2. `IN_PROGRESS`: Return draft with active revisions saved (v2+).
+      3. `RETURNED`: Return sent back by Checker for corrections (`CORRECTION_REQUIRED`).
+      4. `SUBMITTED`: Return sealed and submitted to review (`PENDING_CHECKER`), approved, or delivered to NBE (`SENT`).
+      5. `REUSED_COPY`: Unsubmitted return created from a prior submitted filing (`reusedFromSubmissionId` preserved).
+  - **Maker Save, Reopen, Edit, Validate & Submit Lifecycle (Requirement 3)**:
+    - Makers can save unfinished drafts, leave, reopen from Library, continue editing, trigger authoritative rule validation (`validateSubmission`), and submit to Checker queue with preparation notes.
+  - **Submitted Report "Reuse as New" Lifecycle (Requirement 4)**:
+    - Submitted returns are permanently sealed and cannot be edited in place.
+    - "Reuse as New" creates a brand-new report identity (new unique ID, v1, status `DRAFT`), copying verified data structures while preserving `reusedFromSubmissionId` and `reusedFromVersion`.
+    - Original source report remains 100% immutable (unmodified hash, values, and status).
+  - **Strict Deletion Permissions & Protections (Requirements 5, 6, 9)**:
+    - Makers can delete unsubmitted drafts only (`DRAFT`, `CORRECTION_REQUIRED`).
+    - Submitted reports (`PENDING_CHECKER`, `APPROVED`, `SENT`) strictly forbid deletion at both UI and backend API level, returning HTTP 403 Forbidden.
+    - Every deletion requires an explicit confirmation dialog with Cancel/Delete before removal.
+    - Cross-maker and cross-department deletion protection prevents unauthorized draft purging.
+  - **Server-Side Permission Filtering & Query Engine (Requirements 7, 10)**:
+    - REST endpoint `GET /api/regulatory/library` with server-side authorization: Makers only see authorized returns matching their home department, M:N linked departments, and active special access grants.
+    - Comprehensive filtering: keyword search, lifecycle state, raw status, category/report type, reporting frequency, date ranges (`startDate`, `endDate`), and multi-field sorting.
+    - Server-side pagination returning `{ items, total, page, pageSize, totalPages, stats }`.
+  - **Responsive Dual-Mode UI (Cards & Table) (Requirement 8)**:
+    - Grid Cards view with interactive lifecycle pills, version chips, department badges, and quick actions.
+    - Compact Table view for data-dense inspection.
+    - Real-time loading skeleton, empty state with filter reset, error state, and 403 permission-denied banners.
+  - **Persistence & Rehydration (Requirement 11)**:
+    - Library data persists to IndexedDB and rehydrates seamlessly upon page refresh, login/logout, or browser restart.
+  - **Automated Acceptance Test Coverage (Requirement 13)**:
+    - 100% pass across all 7 test sections and 35+ assertions in `phase25-library-core-architecture-maker-library.test.ts`.
+
+---
+
+## [24.0.0-phase24-validation-error-warning-remediation-assistant] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 24: Unified Validation & Remediation Assistant (`remediation.ts`, `validationRemediationService.ts`, `ValidationRemediationAssistant.tsx`, `DynamicReportForm.tsx`, `submissionService.ts`, `server.ts`, `src/tests/phase24-validation-remediation-assistant.test.ts`)**:
+  - **Authoritative Server-Side Validation Normalization**:
+    - Built `ValidationRemediationService` unifying checks across return line items, dynamic repeatable schedules, cross-field regulatory rules, and report definition structures.
+    - Normalized output schema with severity (`BLOCKING_ERROR`, `WARNING`), category (`DATA_ERROR`, `REPORT_DEFINITION_ERROR`, `BUSINESS_RULE_ERROR`), path, fieldCode, fieldTitle, ruleSource, suggestedAction, and deterministic `proposedFix`.
+  - **4-Part Understandable Explanations**:
+    - Every error and warning provides a clear 4-part narrative:
+      1. `WHAT IS WRONG`: Concrete statement of invalid condition or missing input.
+      2. `WHY IT MATTERS`: Regulatory and supervisory consequence citing NBE Directive BSD/03/2020.
+      3. `HOW TO FIX IT`: Actionable step-by-step guidance for the officer.
+      4. `EXPECTED FORMAT`: Exact numeric, date, percentage, or text syntax required.
+  - **Interactive Locate & Focus Field Navigation**:
+    - Clicking "Locate" navigates to the item across tabs (`ITEMS` vs `DYNAMIC_SCHEDULES`), resets filters, switches pagination page, scrolls element into center viewport, focuses input, and temporarily pulses high-contrast amber highlight ring (`ring-2 ring-amber-500 animate-pulse`).
+  - **Safe Deterministic Auto-Fix Capability**:
+    - Deterministic corrections only: numeric formatting/comma cleanup, ETB currency 2-decimal precision rounding per NBE rules, ISO-8601 date normalization (`YYYY/MM/DD` -> `YYYY-MM-DD`, whitespace trimming), and formula total synchronization (`FormulaEngine.calculateReport`).
+  - **Strict Anti-Guessing Safety Guarantee**:
+    - Ambiguous business values (missing mandatory amounts, negative capital/asset balances, out-of-range percentage ratios, headcount counts, unparseable date strings, cross-field accounting imbalances) are strictly marked `autoFixable: false` and never automatically guessed.
+  - **CURRENT → PROPOSED Review Confirmation Modal**:
+    - Non-trivial fixes display interactive comparison modal showing Current Value, Proposed Value, Reason, and Rule Source before applying.
+  - **Authoritative Revalidation & Save Lifecycle**:
+    - Auto-fix persists updated draft, increments version, runs authoritative recalculation, and reruns normalization; issues are cleared from the summary only when genuinely resolved.
+  - **DATA ERROR vs REPORT-DEFINITION / RULE ERROR Segregation**:
+    - Distinguishes user input mistakes from template definition issues (e.g. duplicate field codes or circular references), displaying guidance that only authorized configuration users (`ADMIN`) can modify templates in Report Template Studio.
+  - **Audit Logging with Sensitive Value Redaction**:
+    - Recorded `VALIDATION_REMEDIATION_APPLIED` audit events with actor, submission ID, field, fix type, and timestamp, while completely redacting multi-million financial figures (`[REDACTED_FINANCIAL_VALUE_PROTECTED]`).
+  - **Pre-Submission Blocking Gate Enforcement**:
+    - Server-side and client-side gates prevent transition to `PENDING_CHECKER` while blocking errors remain.
+  - **Automated Acceptance Test Coverage**:
+    - 100% pass across all 12 test sections and 60+ assertions in `phase24-validation-remediation-assistant.test.ts`.
+
+---
+
+## [23.1.0-phase23-maker-draft-edit-save-resubmit-lifecycle] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 23: Maker Draft/Edit/Save/Resubmit & Reuse Lifecycle (`submissionService.ts`, `DynamicReportForm.tsx`, `MakerWorkspace.tsx`, `server.ts`, `src/types/regulatory.ts`, `src/tests/phase23-maker-draft-lifecycle.test.ts`)**:
+  - **Complete Primary Lifecycle (`CREATE → EDIT → SAVE DRAFT → LEAVE → RETURN → CONTINUE → VALIDATE → SUBMIT`)**:
+    - **Draft Creation**: Authorized Makers create report drafts initialized at v1 with cryptographic integrity seals and immutable `CREATE_DRAFT` audit records.
+    - **Persistent Edit & Save**: Edits update values and dynamic schedules, auto-calculate formulas, increment version, and persist to backend and IndexedDB with `UPDATE_DRAFT` audit tracking.
+    - **Leave & Return Safety**: Maker can safely leave the form; uncommitted changes are auto-persisted to prevent data loss. Returning to the workspace seamlessly reopens the exact persisted draft version with all input values preserved.
+    - **Validation & Submit**: Real-time Zod and ValidationEngine checks gate submission to Checker (`PENDING_CHECKER`), capturing an immutable historical snapshot.
+  - **Returned for Correction & Resubmission Lifecycle (`CORRECTION_REQUIRED → EDIT & CORRECT → RESUBMIT`)**:
+    - When a Checker reviews and requests corrections, report transitions to `CORRECTION_REQUIRED` with supervisory notes attached.
+    - Maker reopens returned report, updates values and dynamic schedules, validates, and resubmits to Checker with `RESUBMIT_TO_CHECKER` audit logging.
+  - **Submitted Report Immutability & "Reuse as New" Lifecycle (`SUBMITTED REPORT → REUSE AS NEW → NEW DRAFT → MODIFY → SAVE → SUBMIT`)**:
+    - **Strict In-Place Mutation Prevention**: Direct edit attempts on submitted/final reports (`SENT`, `APPROVED`, `SENDING`) are strictly blocked with descriptive errors; submitted reports are permanently sealed.
+    - **Reuse as New Mechanism**: Maker invokes `reuseSubmission(id, user)` which creates a brand-new report identity (status `DRAFT`, version 1) pre-populated with baseline values and dynamic rows, while linking `reusedFromSubmissionId` and `reusedFromVersion`.
+    - **Source Preservation Invariant**: Verified that source report values, integrity hash, and status remain 100% untouched and unchanged.
+    - **Full Workflow Support**: The new reused report is completely editable, saveable, validatable, and submittable as a new regulatory return.
+  - **Optimistic Concurrency & Multi-Tab Conflict Locking**:
+    - Enforced `expectedVersion` checking on `updateDraft` and `submitToChecker`; concurrent tab conflicts throw `CONCURRENT_MODIFICATION_CONFLICT` (HTTP 409 Conflict) preventing silent overwriting of edits.
+  - **Automated Acceptance Test Coverage**:
+    - 100% passing across all 6 test suites in `phase23-maker-draft-lifecycle.test.ts`.
+
+---
+
+## [23.0.0-phase21-22-23-dynamic-report-form-validation-xlsx-autosave] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 21: Real-Time Field-Level Validation Logic (`DynamicReportForm.tsx`, `ValidationEngine.ts`, `DynamicAreaTable.tsx`, `src/tests/phase21-realtime-field-level-validation.test.ts`)**:
+  - **Currency & Precision Constraints**: Enforced 2 decimal place maximum precision on ETB currency amounts; rejected invalid formatting and non-numeric characters; enforced non-negative balance constraints for Capital, Cash, Deposit, Collateral, and Statutory Reserve accounts.
+  - **Ratio & Range Constraints**: Enforced percentage ratio range bounds (0.00% to 100.00%) with explicit range errors/warnings; enforced non-negative whole integer constraints for customer, borrower, and staff counts.
+  - **Mandatory Field Constraints**: Flagged missing required fields in real-time with descriptive regulatory warnings; rendered green `Mandatory field compliant` badges for valid inputs.
+  - **Dynamic Schedule Validation**: Propagated validation engine summaries to `DynamicAreaTable` displaying cell-level error outlines and alert tooltips across both desktop table and mobile card views.
+  - **Interactive Pre-Submission Gate**: Disabled `Submit to Checker` action with diagnostic counter and tooltips while validation errors remain; added interactive validation alert banner with 1-click error filtering (`ERRORS_ONLY`).
+  - **Automated Test Coverage**: 100% passing across all 18 assertions in `phase21-realtime-field-level-validation.test.ts`.
+
+- **Phase 22: SheetJS .xlsx Export for NBE-Compliant Offline Review (`DynamicReportForm.tsx`, `regulatoryReportXlsxExport.ts`, `excelService.ts`, `src/tests/phase22-xlsx-sheetjs-export.test.ts`)**:
+  - **NBE Multi-Sheet Workbook Generation**: Created 5-sheet statutory workbook using SheetJS (`xlsx`):
+    1. `Submission Summary`: Institutional identifiers (Oromia Bank S.C., InstCode `0000013`), return metadata, Maker & Checker 4-eyes audit trail, SHA-256 integrity seal, and Directive BSD/03/2020 citation.
+    2. `Return Items`: Fixed line items with Excel number formats (`#,##0.00`), calculation method indicators (Auto/Total/Direct Input), and validation status.
+    3. `Dynamic Schedules`: Dedicated worksheets for each dynamic area preserving borrower facilities and asset rosters.
+    4. `Validation Checklist`: Comprehensive compliance audit checklist evaluating all NBE consistency rules.
+    5. `Offline Review Sign-off`: Institutional examination record with signature lines for NBE Bank Supervision Directorate examiners and Bank Compliance Officers.
+  - **Resilient Binary Download**: Implemented Blob + `URL.createObjectURL` anchor download with graceful fallback to `XLSX.writeFile`; displayed real-time success toast with the standardized filename (`OB_NBE_${cleanKey}_FY${FinYear}_${Status}_${SubmissionId}.xlsx`).
+  - **Automated Test Coverage**: 100% passing in `phase22-xlsx-sheetjs-export.test.ts` (roundtrip binary parse and integrity verification).
+
+- **Phase 23: Periodic 30-Second IndexedDB Auto-Save (`DynamicReportForm.tsx`, `indexedDbStorage.ts`, `src/tests/phase23-indexeddb-autosave.test.ts`)**:
+  - **30-Second Interval Auto-Save**: Configured non-blocking timer in `DynamicReportForm` that automatically persists draft state to IndexedDB every 30 seconds when uncommitted Maker changes exist (`hasUnsavedChanges === true`).
+  - **Redundant Write Prevention**: Avoided unnecessary writes when form is clean or in read-only/auditor inspection mode.
+  - **Offline Durability & Mount Recovery**: Cached drafts in `indexedDbStorage` with `LOCAL_DRAFT` sync status and `offlineSavedAt` timestamp; automatically detected and restored newer offline drafts upon form mounting.
+  - **Live UI Telemetry**: Added dynamic header badge with rotating save spinner, last auto-saved timestamp (`Auto-saved at HH:MM:SS`), and live countdown (`in Ns`).
+  - **Automated Test Coverage**: 100% passing in `phase23-indexeddb-autosave.test.ts` (write verification, cadence simulation, and recovery).
+
+---
+
 ## [15.0.0-phase15-biometric-e2e-hardware-validation-acceptance] - 2026-10-01
 
 ### Added

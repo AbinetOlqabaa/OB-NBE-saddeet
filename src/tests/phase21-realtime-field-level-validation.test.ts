@@ -64,6 +64,37 @@ export async function runPhase21RealtimeFieldLevelValidationTests() {
     'Descriptive numeric format error returned'
   );
 
+  // Test 2B: Currency decimal precision (maximum 2 decimal places for ETB currency figures)
+  const excessDecimalsValues: Record<string, string | number> = {
+    ...emptyValues,
+    [reportWithMandatory.ReturnItemsList[0].Code]: 1500000.755,
+  };
+  const precisionSummary = ValidationEngine.validateReport(reportWithMandatory, excessDecimalsValues);
+  const precisionErr = ValidationEngine.getFieldError(precisionSummary, reportWithMandatory.ReturnItemsList[0].Code);
+  assert(Boolean(precisionErr), 'Currency figure with >2 decimal places flagged with precision error');
+  assert(precisionErr?.message.includes('precision'), 'Error message specifically cites currency precision limit');
+
+  // Test 2C: Currency strictly non-negative balance constraint
+  const testCapitalReport: ReportMetadata = {
+    ...baseReport,
+    ReturnItemsList: [
+      {
+        Code: 'CAP_PAID_UP_01',
+        _description: 'Total Paid-up Capital (ETB)',
+        _dataType: 'NUMERIC',
+        _required: true,
+        Value: 0,
+      },
+    ],
+  };
+  const negCapitalSummary = ValidationEngine.validateReport(testCapitalReport, {
+    CAP_PAID_UP_01: -50000000,
+  });
+  const negCapitalErr = ValidationEngine.getFieldError(negCapitalSummary, 'CAP_PAID_UP_01');
+  assert(Boolean(negCapitalErr), 'Negative balance in capital account flagged with currency constraint error');
+  assert(negCapitalErr?.severity === 'ERROR', 'Negative capital balance severity is ERROR');
+  assert(negCapitalErr?.message.includes('negative balance'), 'Error message cites negative balance prohibition');
+
   console.log('\n--- 3. Range Constraints & Capital Adequacy Ratio Checks ---');
   const testRatioReport: ReportMetadata = {
     ...baseReport,

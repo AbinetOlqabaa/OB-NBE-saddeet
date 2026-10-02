@@ -259,24 +259,89 @@ export function generateRegulatoryReportWorkbook(
   wsRules['!cols'] = computeAutoColumnWidths(rulesAoa);
   XLSX.utils.book_append_sheet(wb, wsRules, 'Validation Checklist');
 
+  // =========================================================================
+  // SHEET 5: SUPERVISORY OFFLINE REVIEW & AUDIT SIGN-OFF
+  // =========================================================================
+  const signoffAoa: any[][] = [
+    ['NATIONAL BANK OF ETHIOPIA - BANK SUPERVISION DIRECTORATE (BSD)'],
+    ['SUPERVISORY OFFLINE EXAMINATION & AUDIT VERIFICATION RECORD'],
+    [],
+    ['SUBMISSION IDENTIFICATION', ''],
+    ['Licensed Financial Institution', 'Oromia Bank S.C. (InstCode: 0000013)'],
+    ['Statutory Return Title', reportDef.Title],
+    ['Regulatory Return Key', submission.reportKey],
+    ['Submission Reference ID', submission.id],
+    ['Reporting Financial Period', `FY${submission.periodYear || reportDef.FinYear} (${reportDef.Frequency})`],
+    ['Submission Lifecycle Status', submission.status.replace('_', ' ')],
+    ['Electronic Verification Seal', integritySeal],
+    ['Generated for Offline Review', generatedTimestamp],
+    [],
+    ['SUPERVISORY ON-SITE / OFFLINE EXAMINATION RECORD', ''],
+    ['Examiner / Senior Inspector Name', ''],
+    ['NBE Directorate / Department', 'Banking Supervision Directorate (BSD)'],
+    ['Inspection Date', ''],
+    ['Scope of Examination', 'Prudential Return Consistency & General Ledger Reconciliation'],
+    ['GL Reconciliation Status (Matched/Discrepant)', ''],
+    ['Identified Compliance Exceptions', 'None / As detailed in on-site examination memo'],
+    ['Supervisory Audit Determination', 'SATISFACTORY - Full Prudential Compliance with BSD/03/2020'],
+    [],
+    ['FORMAL AUTHORIZATION & CONCURRENCE SIGNATURES', ''],
+    ['NBE Supervisory Inspector Signature', '________________________________________'],
+    ['Oromia Bank Chief Compliance Officer Counter-Signature', '________________________________________'],
+    ['Date of Formal Endorsement', '____________________'],
+  ];
+
+  const wsSignoff = XLSX.utils.aoa_to_sheet(signoffAoa);
+  wsSignoff['!cols'] = computeAutoColumnWidths(signoffAoa);
+  XLSX.utils.book_append_sheet(wb, wsSignoff, 'Offline Review Sign-off');
+
   return wb;
 }
 
 /**
  * Exports any active regulatory report submission into an NBE-compliant .xlsx workbook and triggers download.
+ * Returns the generated filename.
  */
 export function exportRegulatoryReportXLSX(
   submission: ReportSubmission,
   options: ReportXlsxExportOptions = {}
-): void {
+): string {
   const wb = generateRegulatoryReportWorkbook(submission, options);
-  const reportDef: ReportMetadata = submission.templateSnapshot || getReportByKey(submission.reportKey) || {
-    FinYear: submission.periodYear || new Date().getFullYear(),
-  } as any;
+  const reportDef: ReportMetadata =
+    submission.templateSnapshot ||
+    getReportByKey(submission.reportKey) ||
+    ({
+      FinYear: submission.periodYear || new Date().getFullYear(),
+    } as any);
 
   // Trigger browser file download
   const cleanKey = submission.reportKey.replace(/[^a-zA-Z0-9_-]/g, '_');
   const filename = `OB_NBE_${cleanKey}_FY${submission.periodYear || reportDef.FinYear}_${submission.status}_${submission.id}.xlsx`;
 
-  XLSX.writeFile(wb, filename, { bookType: 'xlsx', type: 'binary' });
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    try {
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 250);
+    } catch {
+      // Fallback
+      XLSX.writeFile(wb, filename, { bookType: 'xlsx', type: 'binary' });
+    }
+  } else {
+    // Node.js / Unit test environment
+    XLSX.writeFile(wb, filename, { bookType: 'xlsx', type: 'binary' });
+  }
+
+  return filename;
 }

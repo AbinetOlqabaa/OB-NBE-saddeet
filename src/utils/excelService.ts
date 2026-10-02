@@ -94,8 +94,8 @@ export class ExcelService {
   public static exportSubmission(
     submission: ReportSubmission,
     options?: ReportXlsxExportOptions
-  ): void {
-    exportRegulatoryReportXLSX(submission, options);
+  ): string {
+    return exportRegulatoryReportXLSX(submission, options);
   }
 
   /**

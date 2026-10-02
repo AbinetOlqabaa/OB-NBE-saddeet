@@ -1552,6 +1552,173 @@ export class BiometricServiceClass {
   }
 
   /**
+   * Verifies the validity of email and password credentials for biometric reset,
+   * and verifies whether Face ID or/and Fingerprint enrollment has been done previously.
+   * Both credential validity and prior enrollment must be satisfied to proceed to reset.
+   */
+  public verifyResetCredentialsAndEnrollment(
+    email: string,
+    password: string
+  ): {
+    success: boolean;
+    validCredentials: boolean;
+    hasEnrolledBiometrics: boolean;
+    hasFaceId: boolean;
+    hasFingerprint: boolean;
+    user?: UserAccount;
+    message?: string;
+    lockedOut?: boolean;
+    remainingLockoutSec?: number;
+    remainingAttempts?: number;
+  } {
+    const norm = (email || '').toLowerCase().trim();
+
+    // 1. Corporate email validation
+    if (!norm || !norm.includes('@') || !norm.endsWith('@oromiabank.com')) {
+      return {
+        success: false,
+        validCredentials: false,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        message: 'Corporate email format required (must end with @oromiabank.com) for biometric reset service.',
+      };
+    }
+
+    if (!password || !password.trim()) {
+      return {
+        success: false,
+        validCredentials: false,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        message: 'Corporate account password is required to continue for biometric reset service.',
+      };
+    }
+
+    // 2. Check progressive rate limits / service denial
+    const rateCheck = this.checkRateLimit(norm);
+    if (rateCheck.isLocked) {
+      return {
+        success: false,
+        validCredentials: false,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        lockedOut: true,
+        remainingLockoutSec: rateCheck.remainingLockoutSec,
+        remainingAttempts: 0,
+        message: `Service denied: Account is temporarily locked due to excessive failed attempts (${rateCheck.failedAttempts}/${MAX_FAILED_ATTEMPTS}). Service will automatically reset to default in ${rateCheck.remainingLockoutSec}s.`,
+      };
+    }
+
+    // 3. User account existence check
+    const user = userService.getByEmail(norm);
+    if (!user) {
+      const failResult = this.recordFailure(norm, 'FINGERPRINT', 'Account not found during credential verification');
+      const remainingTrials = Math.max(0, MAX_FAILED_ATTEMPTS - failResult.failedAttempts);
+      return {
+        success: false,
+        validCredentials: false,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        lockedOut: failResult.isLocked,
+        remainingLockoutSec: failResult.remainingLockoutSec,
+        remainingAttempts: remainingTrials,
+        message: `Invalid credentials: No active officer account found with corporate email "${norm}".`,
+      };
+    }
+
+    if (user.status !== 'ACTIVE') {
+      return {
+        success: false,
+        validCredentials: false,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        message: `Officer account "${norm}" is not active (Status: ${user.status}). Biometric reset service unavailable.`,
+      };
+    }
+
+    // 4. Password validation
+    if (user.password !== password) {
+      const failResult = this.recordFailure(norm, 'FINGERPRINT', 'Failed password verification for biometric reset');
+      const remainingTrials = Math.max(0, MAX_FAILED_ATTEMPTS - failResult.failedAttempts);
+      this.logAudit({
+        actorId: user.id,
+        actorName: user.name,
+        actorRole: user.role,
+        action: 'BIOMETRIC_AUTH_FAILURE',
+        entityId: user.id,
+        details: `Failed password authentication for biometric reset service on account ${user.email}. Attempt ${failResult.failedAttempts}/${MAX_FAILED_ATTEMPTS}.`,
+      });
+
+      if (failResult.isLocked) {
+        return {
+          success: false,
+          validCredentials: false,
+          hasEnrolledBiometrics: false,
+          hasFaceId: false,
+          hasFingerprint: false,
+          lockedOut: true,
+          remainingLockoutSec: failResult.remainingLockoutSec,
+          remainingAttempts: 0,
+          message: `Service denied: Account has exceeded acceptable trials (${MAX_FAILED_ATTEMPTS}/${MAX_FAILED_ATTEMPTS}) and is temporarily locked. Service will automatically reset to default in ${failResult.remainingLockoutSec}s.`,
+        };
+      }
+
+      return {
+        success: false,
+        validCredentials: false,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        remainingAttempts: remainingTrials,
+        message: `Invalid corporate account password. Please enter your valid institutional password to continue (${remainingTrials} trial(s) remaining).`,
+      };
+    }
+
+    // Password is valid - reset failure counter
+    this.recordSuccess(norm);
+
+    // 5. Check if fingerprint or/and face enrollment has been done previously
+    const userCreds = Array.from(this.credentials.values()).filter(
+      (c) => c.userId === user.id && (c.status === 'ENROLLED' || c.status === 'SUSPENDED')
+    );
+    const hasFaceId =
+      userCreds.some((c) => c.type === 'FACE') ||
+      Boolean(user.biometricCredentials?.some((c) => c.type === 'FACE'));
+    const hasFingerprint =
+      userCreds.some((c) => c.type === 'FINGERPRINT') ||
+      Boolean(user.biometricCredentials?.some((c) => c.type === 'FINGERPRINT'));
+
+    const hasEnrolledBiometrics = hasFaceId || hasFingerprint;
+
+    if (!hasEnrolledBiometrics) {
+      return {
+        success: false,
+        validCredentials: true,
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        user,
+        message: `No enrolled biometrics found: ${user.name} does not have any active Face ID or Fingerprint passkeys enrolled previously. Biometric reset cannot proceed without pre-existing biometric enrollments.`,
+      };
+    }
+
+    return {
+      success: true,
+      validCredentials: true,
+      hasEnrolledBiometrics: true,
+      hasFaceId,
+      hasFingerprint,
+      user,
+      message: `Credentials verified. Prior biometric enrollment confirmed (${hasFaceId && hasFingerprint ? 'Face ID and Fingerprint' : hasFaceId ? 'Face ID Profile' : 'WebAuthn Passkey'}).`,
+    };
+  }
+
+  /**
    * Initiates biometric reset with mandatory corporate email validation and step-up password authentication.
    * Protects reset from stolen sessions, takeover, replay, and cross-user tampering.
    */

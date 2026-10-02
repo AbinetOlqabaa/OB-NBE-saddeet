@@ -89,6 +89,22 @@ export class ValidationEngine {
             const isCountField = descLower.includes('number of') || descLower.includes('count') || descLower.includes('quantity');
             const isAssetOrCapitalOrReserve = !descLower.includes('variance') && !descLower.includes('net change') && !descLower.includes('loss') && !descLower.includes('adjustment') && !descLower.includes('reconciliation');
 
+            // Currency precision check: maximum 2 decimal places for ETB currency
+            if (!isRatioOrPercent && !isCountField) {
+              const valStr = String(val).replace(/,/g, '').trim();
+              if (valStr.includes('.')) {
+                const decimalPart = valStr.split('.')[1];
+                if (decimalPart && decimalPart.length > 2) {
+                  fieldErrors.push({
+                    code: item.Code,
+                    fieldTitle: item._description,
+                    message: `Currency precision error: '${val}' cannot have more than 2 decimal places for ETB currency figures.`,
+                    severity: 'ERROR',
+                  });
+                }
+              }
+            }
+
             if (isRatioOrPercent) {
               if (num < 0 || num > 100) {
                 fieldErrors.push({
@@ -107,6 +123,22 @@ export class ValidationEngine {
                   severity: 'ERROR',
                 });
               }
+            } else if (
+              num < 0 &&
+              (descLower.includes('paid-up') ||
+                descLower.includes('capital') ||
+                descLower.includes('deposit') ||
+                descLower.includes('statutory reserve') ||
+                descLower.includes('cash on hand') ||
+                descLower.includes('facility limit') ||
+                descLower.includes('collateral'))
+            ) {
+              fieldErrors.push({
+                code: item.Code,
+                fieldTitle: item._description,
+                message: `Currency constraint: '${item._description}' cannot have a negative balance (${num.toLocaleString()} ETB). Verify if negative balance is authorized under NBE directives.`,
+                severity: 'ERROR',
+              });
             } else if (isAssetOrCapitalOrReserve && num < 0) {
               fieldErrors.push({
                 code: item.Code,

@@ -26,6 +26,7 @@ import {
   AlertCircle,
   Activity,
   ShieldAlert,
+  BookOpen,
 } from 'lucide-react';
 import { UserSession } from '../types/regulatory';
 import {
@@ -43,6 +44,7 @@ export type ViewTab =
   | 'ADMIN_DASHBOARD'
   | 'DEPT_REPORT_MANAGEMENT'
   | 'MAKER_WORKSPACE'
+  | 'LIBRARY'
   | 'CHECKER_INBOX'
   | 'AUDITOR_DASHBOARD'
   | 'NBE_SIMULATOR'
@@ -204,6 +206,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: null,
       shortcut: `${modKey}+M`,
       roles: ['ADMIN', 'MAKER'],
+    },
+    {
+      id: 'LIBRARY' as ViewTab,
+      label: 'Library & Dossiers',
+      shortLabel: 'Library',
+      icon: BookOpen,
+      description: 'Authoritative drafts, in-progress & submissions',
+      badge: null,
+      shortcut: `${modKey}+L`,
+      roles: ['ADMIN', 'MAKER', 'CHECKER', 'AUDITOR'],
     },
     {
       id: 'CHECKER_INBOX' as ViewTab,

@@ -21,6 +21,7 @@ import { Sidebar, ViewTab } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { DepartmentReportManagement } from './components/DepartmentReportManagement';
 import { MakerWorkspace } from './components/MakerWorkspace';
+import { MakerLibraryView } from './components/MakerLibraryView';
 import { CheckerInbox } from './components/CheckerInbox';
 import { AuditorDashboard } from './components/AuditorDashboard';
 import { DynamicReportForm } from './components/DynamicReportForm';
@@ -78,6 +79,8 @@ export const isTabAuthorizedForRole = (tab: ViewTab, role?: string): boolean => 
       return role === 'ADMIN';
     case 'MAKER_WORKSPACE':
       return role === 'ADMIN' || role === 'MAKER';
+    case 'LIBRARY':
+      return true;
     case 'CHECKER_INBOX':
       return role === 'ADMIN' || role === 'CHECKER';
     case 'AUDITOR_DASHBOARD':
@@ -207,6 +210,15 @@ export default function App() {
         } else {
           showToast('Access restricted: Maker Workspace requires MAKER or ADMIN role.');
         }
+        return;
+      }
+
+      // 4b. Ctrl+L or Cmd+L: Jump to Maker Library & Dossiers
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        setActiveTab('LIBRARY');
+        setEditingSubmission(null);
+        showToast('Navigated to Maker Library & Dossiers (Ctrl+L)');
         return;
       }
 
@@ -475,7 +487,8 @@ export default function App() {
   // Save changes to current submission
   const handleSaveDraft = (
     values: Record<string, string | number>,
-    dynamicRows: Record<number, DynamicRowRecord[]>
+    dynamicRows: Record<number, DynamicRowRecord[]>,
+    expectedVersion?: number
   ) => {
     if (!editingSubmission || !currentUser) return;
     try {
@@ -484,13 +497,28 @@ export default function App() {
         editingSubmission.id,
         values,
         dynamicRows,
-        currentUser
+        currentUser,
+        expectedVersion
       );
       setEditingSubmission(updated);
       setSubmissions(submissionService.getAll());
       showToast('Changes saved to draft.');
     } catch (err: any) {
       alert(`Save error: ${err.message}`);
+    }
+  };
+
+  // Reuse submitted / historical return as new draft
+  const handleReuseSubmission = (subId: string) => {
+    if (!currentUser) return;
+    try {
+      vibrate([30, 45]);
+      const reused = submissionService.reuseSubmission(subId, currentUser);
+      setSubmissions(submissionService.getAll());
+      setEditingSubmission(reused);
+      showToast(`Created new draft by reusing return ${reused.reportKey}. Source report remains immutable.`);
+    } catch (err: any) {
+      alert(`Error reusing report: ${err.message}`);
     }
   };
 
@@ -687,15 +715,21 @@ export default function App() {
               submission={editingSubmission}
               currentUser={currentUser}
               readOnly={
+                currentUser.role !== 'MAKER' ||
                 editingSubmission.status === 'APPROVED' ||
                 editingSubmission.status === 'SENT' ||
-                currentUser.role === 'CHECKER'
+                editingSubmission.status === 'ARCHIVED' ||
+                editingSubmission.status === 'VOIDED' ||
+                editingSubmission.status === 'PENDING_CHECKER' ||
+                (editingSubmission.status !== 'DRAFT' &&
+                  editingSubmission.status !== 'CORRECTION_REQUIRED')
               }
               onBack={() => setEditingSubmission(null)}
               onSave={handleSaveDraft}
-              onSubmitToChecker={(comment) => {
+              onSubmitToChecker={(comment, expectedVer) => {
                 handleSubmitToChecker(editingSubmission.id, comment);
               }}
+              onReuseSubmission={handleReuseSubmission}
             />
           ) : !isTabAuthorizedForRole(activeTab, currentUser.role) ? (
             <div className="flex-1 flex items-center justify-center p-4">
@@ -753,6 +787,21 @@ export default function App() {
                   onCreateDraft={handleCreateDraft}
                   onSubmitToChecker={handleSubmitToChecker}
                   onDeleteSubmission={handleDeleteSubmission}
+                  onReuseSubmission={handleReuseSubmission}
+                />
+              )}
+
+              {activeTab === 'LIBRARY' && (
+                <MakerLibraryView
+                  currentUser={currentUser}
+                  templates={templates}
+                  submissions={submissions}
+                  onSelectSubmission={handleSelectSubmission}
+                  onCreateDraft={handleCreateDraft}
+                  onSubmitToChecker={handleSubmitToChecker}
+                  onDeleteSubmission={handleDeleteSubmission}
+                  onReuseSubmission={handleReuseSubmission}
+                  onRefresh={() => refreshData()}
                 />
               )}
 

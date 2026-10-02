@@ -30,6 +30,7 @@ import { bulkOperationsEngine } from './src/services/bulkOperationsEngine.ts';
 import { realtimeSsotEngine } from './src/services/realtimeSsotEngine.ts';
 import { configurationGovernanceService } from './src/services/configurationGovernanceService.ts';
 import { biometricService } from './src/services/biometricService.ts';
+import { ValidationRemediationService } from './src/services/validationRemediationService.ts';
 
 dotenv.config();
 
@@ -64,6 +65,13 @@ export type { PaginatedResult };
 function getAuthOrClientStatusCode(errMessage: string): number {
   const m = (errMessage || '').toLowerCase();
   if (
+    m.includes('concurrent_modification_conflict') ||
+    m.includes('concurrency') ||
+    m.includes('conflict')
+  ) {
+    return 409;
+  }
+  if (
     m.includes('role violation') ||
     m.includes('department restriction') ||
     m.includes('unauthorized') ||
@@ -77,6 +85,8 @@ function getAuthOrClientStatusCode(errMessage: string): number {
     m.includes('only the maker') ||
     m.includes('only auditor') ||
     m.includes('review denied') ||
+    m.includes('forbidden') ||
+    m.includes('cannot delete') ||
     m.includes('denied')
   ) {
     return 403;
@@ -617,14 +627,214 @@ app.get('/api/regulatory/submissions', (req, res) => {
   res.json(submissions);
 });
 
-// Get submission by ID
+// Phase 25: Authoritative Library Query Endpoint (Requirements 1, 2, 7, 10)
+app.get('/api/regulatory/library', (req, res) => {
+  const {
+    search,
+    lifecycleState,
+    status,
+    reportType,
+    frequency,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+    page,
+    pageSize,
+    limit,
+    userId,
+    userEmail,
+  } = req.query as any;
+
+  // Resolve requesting user session
+  let activeUser = DEMO_USERS[0];
+  if (userEmail) {
+    const found = userService.getByEmail(userEmail);
+    if (found) activeUser = found as any;
+  } else if (userId) {
+    const found = userService.getById(userId);
+    if (found) activeUser = found as any;
+  }
+
+  const result = submissionService.queryLibrary(activeUser, {
+    search,
+    lifecycleState,
+    status,
+    reportType,
+    frequency,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+    page: page ? Number(page) : undefined,
+    pageSize: pageSize || limit ? Number(pageSize || limit) : undefined,
+  });
+
+  res.json(result);
+});
+
+// Delete Draft Submission Endpoint (Requirements 5, 6, 9, 10)
+app.delete('/api/regulatory/submissions/:id', (req, res) => {
+  const { user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const deleted = submissionService.deleteSubmission(req.params.id, activeUser);
+    if (deleted) {
+      res.json({ success: true, message: 'Draft deleted successfully' });
+    } else {
+      res.status(404).json({ error: 'Submission not found' });
+    }
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Get submission by ID (with authoritative cross-department isolation)
 app.get('/api/regulatory/submissions/:id', (req, res) => {
-  const sub = submissionService.getById(req.params.id);
-  if (!sub) {
-    res.status(404).json({ error: 'Submission not found' });
+  const { userEmail, userId } = req.query as any;
+  let activeUser = req.body && req.body.user ? req.body.user : null;
+  if (!activeUser) {
+    if (userEmail) activeUser = userService.getByEmail(userEmail as string);
+    else if (userId) activeUser = userService.getById(userId as string);
+  }
+  if (!activeUser) activeUser = DEMO_USERS[0];
+
+  try {
+    const sub = submissionService.getAuthorizedSubmission(req.params.id, activeUser);
+    res.json(sub);
+  } catch (err: any) {
+    const status = err.message.includes('not found') ? 404 : 403;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Removal Impact Assessment for Admin (Requirement 8)
+app.get('/api/regulatory/submissions/:id/removal-impact', (req, res) => {
+  const { userEmail, userId } = req.query as any;
+  let activeUser = req.body && req.body.user ? req.body.user : null;
+  if (!activeUser) {
+    if (userEmail) activeUser = userService.getByEmail(userEmail as string);
+    else if (userId) activeUser = userService.getById(userId as string);
+  }
+  if (!activeUser) activeUser = DEMO_USERS[0];
+
+  try {
+    const assessment = submissionService.getRemovalImpactAssessment(req.params.id, activeUser);
+    res.json(assessment);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Admin Governed Removal / Archiving / Voiding (Requirements 7 & 8)
+app.post('/api/regulatory/submissions/:id/admin-remove', (req, res) => {
+  const { action, reason, confirmed, user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const result = submissionService.adminGovernedRemoveSubmission(req.params.id, activeUser, {
+      action,
+      reason,
+      confirmed: Boolean(confirmed),
+    });
+    res.json(result);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Flag Submission for Review (Requirement 1)
+app.post('/api/regulatory/submissions/:id/flag', (req, res) => {
+  const { reason, flag, user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  try {
+    const updated = submissionService.flagSubmission(
+      req.params.id,
+      activeUser,
+      reason || 'Flagged for compliance review',
+      flag !== undefined ? Boolean(flag) : true
+    );
+    res.json(updated);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Add Review/Audit Comment (Requirements 1 & 2)
+app.post('/api/regulatory/submissions/:id/comment', (req, res) => {
+  const { text, category, user } = req.body || {};
+  const queryUser = req.query.userEmail
+    ? userService.getByEmail(req.query.userEmail as string)
+    : req.query.userId
+    ? userService.getById(req.query.userId as string)
+    : null;
+  const activeUser = user || queryUser || DEMO_USERS[0];
+
+  if (!text || !text.trim()) {
+    res.status(400).json({ error: 'Comment text is required.' });
     return;
   }
-  res.json(sub);
+
+  try {
+    const updated = submissionService.addSubmissionComment(
+      req.params.id,
+      activeUser,
+      text.trim(),
+      category || 'GENERAL'
+    );
+    res.json(updated);
+  } catch (err: any) {
+    const status = err.message.includes('not found')
+      ? 404
+      : getAuthOrClientStatusCode(err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Phase 26: Dossier Audit Events Inspection (Requirement 2)
+app.get('/api/regulatory/submissions/:id/audit-events', (req, res) => {
+  const { userEmail, userId } = req.query as any;
+  let activeUser = req.body && req.body.user ? req.body.user : null;
+  if (!activeUser) {
+    if (userEmail) activeUser = userService.getByEmail(userEmail as string);
+    else if (userId) activeUser = userService.getById(userId as string);
+  }
+  if (!activeUser) activeUser = DEMO_USERS[0];
+
+  try {
+    submissionService.getAuthorizedSubmission(req.params.id, activeUser);
+    const events = auditService.query({ entityId: req.params.id });
+    res.json({ events });
+  } catch (err: any) {
+    const status = err.message.includes('not found') ? 404 : 403;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // Create new report draft
@@ -645,17 +855,35 @@ app.post('/api/regulatory/submissions', (req, res) => {
 
 // Update draft values & dynamic rows
 app.put('/api/regulatory/submissions/:id', (req, res) => {
-  const { values, dynamicRows, user } = req.body;
+  const { values, dynamicRows, user, expectedVersion } = req.body;
   const activeUser = user || DEMO_USERS[0];
   try {
-    const updated = submissionService.updateDraft(req.params.id, values || {}, dynamicRows || {}, activeUser);
+    const updated = submissionService.updateDraft(
+      req.params.id,
+      values || {},
+      dynamicRows || {},
+      activeUser,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
     res.json(updated);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
-// Validate submission
+// Reuse historical/submitted report as new draft
+app.post('/api/regulatory/submissions/:id/reuse', (req, res) => {
+  const { user } = req.body;
+  const activeUser = user || DEMO_USERS[0];
+  try {
+    const reused = submissionService.reuseSubmission(req.params.id, activeUser);
+    res.status(201).json(reused);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Validate submission (authoritative summary)
 app.post('/api/regulatory/submissions/:id/validate', (req, res) => {
   try {
     const summary = submissionService.validateSubmission(req.params.id);
@@ -665,12 +893,67 @@ app.post('/api/regulatory/submissions/:id/validate', (req, res) => {
   }
 });
 
-// Maker submit to Checker
-app.post('/api/regulatory/submissions/:id/submit', (req, res) => {
-  const { user, comment } = req.body;
+// Phase 24: Authoritative Normalized Validation & Remediation Assistant Inspection
+app.get('/api/regulatory/submissions/:id/remediation', (req, res) => {
+  try {
+    const normalizedSummary = submissionService.validateSubmissionNormalized(req.params.id);
+    res.json(normalizedSummary);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Remediation Auto-Fix Execution
+app.post('/api/regulatory/submissions/:id/remediation/apply', (req, res) => {
+  const { proposedFix, user, expectedVersion } = req.body;
   const activeUser = user || DEMO_USERS[0];
   try {
-    const updated = submissionService.submitToChecker(req.params.id, activeUser, comment);
+    if (!proposedFix) {
+      res.status(400).json({ error: 'Missing proposedFix payload' });
+      return;
+    }
+    const result = submissionService.remediateSubmission(
+      req.params.id,
+      proposedFix,
+      activeUser,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
+    res.json(result);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Real-Time Payload Validation without Persisting
+app.post('/api/regulatory/validate-payload', (req, res) => {
+  const { metadata, values, dynamicRows } = req.body;
+  try {
+    if (!metadata) {
+      res.status(400).json({ error: 'Missing report metadata' });
+      return;
+    }
+    const summary = ValidationRemediationService.normalizeReportValidation(
+      metadata,
+      values || {},
+      dynamicRows || {}
+    );
+    res.json(summary);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Maker submit to Checker
+app.post('/api/regulatory/submissions/:id/submit', (req, res) => {
+  const { user, comment, expectedVersion } = req.body;
+  const activeUser = user || DEMO_USERS[0];
+  try {
+    const updated = submissionService.submitToChecker(
+      req.params.id,
+      activeUser,
+      comment,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
     res.json(updated);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
@@ -1127,6 +1410,21 @@ app.post('/api/auth/biometrics/device/rename', (req, res) => {
     res.json(result);
   } else {
     res.status(400).json(result);
+  }
+});
+
+// 10b. Verify Credentials and Prior Enrollment for Reset
+app.post('/api/auth/biometrics/reset/verify', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ success: false, message: 'Corporate email and password are required.' });
+    return;
+  }
+  const result = biometricService.verifyResetCredentialsAndEnrollment(email, password);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(result.validCredentials ? 422 : 401).json(result);
   }
 });
 

@@ -57,6 +57,7 @@ interface MakerWorkspaceProps {
   onSubmitToChecker: (submissionId: string, comment?: string) => void;
   onDeliverToNBE?: (submissionId: string) => Promise<any>;
   onDeleteSubmission?: (submissionId: string) => void;
+  onReuseSubmission?: (submissionId: string) => void;
 }
 
 export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
@@ -68,6 +69,7 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
   onSubmitToChecker,
   onDeliverToNBE,
   onDeleteSubmission,
+  onReuseSubmission,
 }) => {
   const [activeTab, setActiveTab] = useState<'TEMPLATES' | 'SUBMISSIONS'>('TEMPLATES');
   const [viewMode, setViewMode] = useState<'GRID' | 'LIST'>('GRID');
@@ -83,6 +85,9 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
   const [deliveringSub, setDeliveringSub] = useState<ReportSubmission | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
   const [deliveryFeedback, setDeliveryFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Delete Confirmation Modal (Requirement 9)
+  const [deleteConfirmSub, setDeleteConfirmSub] = useState<ReportSubmission | null>(null);
 
   // Pagination states
   const [templatesPage, setTemplatesPage] = useState(1);
@@ -710,7 +715,7 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                     return (
                       <SwipeableCard
                         key={sub.id}
-                        onSwipeLeft={canDelete && onDeleteSubmission ? () => onDeleteSubmission(sub.id) : undefined}
+                        onSwipeLeft={canDelete && onDeleteSubmission ? () => setDeleteConfirmSub(sub) : undefined}
                         leftActionLabel="Delete"
                         leftActionIcon={<Trash2 className="w-5 h-5" />}
                         leftActionColor="bg-rose-600"
@@ -740,8 +745,27 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                           </div>
 
                           <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px] text-slate-500 dark:text-slate-400">
-                            <span className="font-mono">{sub.periodYear} (v{sub.version})</span>
+                            <div className="flex items-center gap-1 font-mono">
+                              <span>{sub.periodYear} (v{sub.version})</span>
+                              {sub.reusedFromSubmissionId && (
+                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-ob-indigo-100 dark:bg-ob-indigo-950 text-ob-indigo-700 dark:text-ob-indigo-300 border border-ob-indigo-300 dark:border-ob-indigo-800">
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  Reused
+                                </span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              {onReuseSubmission && (sub.status === 'SENT' || sub.status === 'APPROVED') && (
+                                <button
+                                  type="button"
+                                  onClick={() => onReuseSubmission(sub.id)}
+                                  className="min-h-[40px] px-2.5 py-1 bg-ob-indigo-600 hover:bg-ob-indigo-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 touch-press"
+                                  title="Create a new draft by reusing submitted report data"
+                                >
+                                  <Sparkles className="w-3 h-3 text-ob-indigo-200" />
+                                  <span>Reuse</span>
+                                </button>
+                              )}
                               {(sub.status === 'DRAFT' || sub.status === 'CORRECTION_REQUIRED') && (
                                 <button
                                   type="button"
@@ -749,7 +773,7 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                                   className="min-h-[40px] px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 touch-press"
                                 >
                                   <Clock className="w-3 h-3" />
-                                  <span>Submit</span>
+                                  <span>{sub.status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Submit'}</span>
                                 </button>
                               )}
                               {sub.status === 'APPROVED' && (
@@ -790,7 +814,15 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                       return (
                         <tr key={sub.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                           <td className="py-2.5 px-3 font-mono font-bold text-ob-indigo-700 dark:text-ob-indigo-300">
-                            {sub.reportKey}
+                            <div className="flex items-center gap-1.5">
+                              <span>{sub.reportKey}</span>
+                              {sub.reusedFromSubmissionId && (
+                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-ob-indigo-100 dark:bg-ob-indigo-950 text-ob-indigo-700 dark:text-ob-indigo-300 border border-ob-indigo-300 dark:border-ob-indigo-800" title={`Reused from ${sub.reusedFromSubmissionId} (v${sub.reusedFromVersion})`}>
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  Reused
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-slate-100 max-w-xs truncate">
                             {tpl?.Title || sub.reportKey}
@@ -812,8 +844,27 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                               className="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
                             >
                               <Edit3 className="w-3 h-3" />
-                              <span>{sub.status === 'DRAFT' ? 'Edit Draft' : 'View Return'}</span>
+                              <span>
+                                {sub.status === 'DRAFT'
+                                  ? 'Continue Draft'
+                                  : sub.status === 'CORRECTION_REQUIRED'
+                                  ? 'Edit & Correct'
+                                  : 'View Return'}
+                              </span>
                             </button>
+
+                            {/* Reuse as New for Submitted / Approved returns */}
+                            {onReuseSubmission && (sub.status === 'SENT' || sub.status === 'APPROVED') && (
+                              <button
+                                type="button"
+                                onClick={() => onReuseSubmission(sub.id)}
+                                className="px-2.5 py-1 bg-ob-indigo-600 hover:bg-ob-indigo-700 text-white font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                title="Create a new editable draft by reusing submitted report data (Original submission remains immutable)"
+                              >
+                                <Sparkles className="w-3 h-3 text-ob-indigo-200" />
+                                <span>Reuse as New</span>
+                              </button>
+                            )}
 
                             {/* Download Signed PDF */}
                             <button
@@ -879,7 +930,7 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                             {(sub.status === 'DRAFT' || sub.status === 'CORRECTION_REQUIRED' || sub.status === 'FAILED') && onDeleteSubmission && (
                               <button
                                 type="button"
-                                onClick={() => onDeleteSubmission(sub.id)}
+                                onClick={() => setDeleteConfirmSub(sub)}
                                 className="p-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors inline-flex items-center cursor-pointer"
                                 title="Delete Draft"
                               >
@@ -1081,6 +1132,57 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                     <span>Confirm Final Transmission to NBE</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog (Requirement 9) */}
+      {deleteConfirmSub && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0 border border-red-200 dark:border-red-800">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Confirm Deletion of Saved Draft
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Are you sure you want to delete unsubmitted draft <strong className="font-mono text-slate-800 dark:text-slate-200">{deleteConfirmSub.reportKey}</strong>?
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800">
+              ⚠️ Warning: This action cannot be reversed. All unsubmitted changes will be purged permanently.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmSub(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteSubmission && deleteConfirmSub) {
+                    onDeleteSubmission(deleteConfirmSub.id);
+                  }
+                  setDeleteConfirmSub(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/20 cursor-pointer"
+              >
+                Delete Draft
               </button>
             </div>
           </div>

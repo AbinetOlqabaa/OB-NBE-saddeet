@@ -23,6 +23,7 @@ import {
   Laptop,
   Network,
   Activity,
+  BookOpen,
 } from 'lucide-react';
 import { ViewTab } from './Sidebar.tsx';
 import { ReportMetadata, UserSession } from '../types/regulatory.ts';
@@ -76,6 +77,15 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
       shortcut: `${modKey}+M`,
       category: 'Views',
       allowedRoles: ['ADMIN', 'MAKER'],
+    },
+    {
+      id: 'LIBRARY' as ViewTab,
+      title: 'Maker Library & Dossiers',
+      subtitle: 'Authoritative archive of drafts, in-progress returns, and submitted dossiers',
+      icon: BookOpen,
+      shortcut: `${modKey}+L`,
+      category: 'Views',
+      allowedRoles: ['ADMIN', 'MAKER', 'CHECKER', 'AUDITOR'],
     },
     {
       id: 'CHECKER_INBOX' as ViewTab,
