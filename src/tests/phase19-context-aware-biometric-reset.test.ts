@@ -30,6 +30,7 @@ export async function runPhase19ContextAwareBiometricResetTests() {
     name: 'Aster Aweke',
     role: 'CHECKER',
     department: 'Internal Audit & Regulatory Control',
+    employeeId: `EMP_FRESH_${Date.now()}`,
   });
   if (reg1.user) userService.updateUserStatus(reg1.user.id, 'ACTIVE', 'Super Admin');
 
@@ -45,6 +46,7 @@ export async function runPhase19ContextAwareBiometricResetTests() {
     name: 'Solomon Bogale',
     role: 'MAKER',
     department: 'Trade Services & Foreign Exchange',
+    employeeId: `EMP_FACE_${Date.now()}`,
   });
   if (reg2.user) userService.updateUserStatus(reg2.user.id, 'ACTIVE', 'Super Admin');
 
@@ -57,7 +59,7 @@ export async function runPhase19ContextAwareBiometricResetTests() {
   assert(faceEnroll.success, 'Face ID enrolled for officer');
 
   const faceOnlyState = biometricService.getBiometricUserState(faceOnlyEmail);
-  assert(faceOnlyState.faceState === 'ENROLLED' || faceOnlyState.faceState === 'ACTIVE', 'Face state is ENROLLED');
+  assert(faceOnlyState.faceState === 'ENROLLED', 'Face state is ENROLLED');
   assert(faceOnlyState.fingerprintState === 'NOT_ENROLLED', 'Fingerprint state is NOT_ENROLLED');
 
   // Request reset for FACE with valid password
@@ -80,6 +82,7 @@ export async function runPhase19ContextAwareBiometricResetTests() {
     name: 'Derartu Tulu',
     role: 'AUDITOR',
     department: 'Compliance & Legal Governance',
+    employeeId: `EMP_FP_${Date.now()}`,
   });
   if (reg3.user) userService.updateUserStatus(reg3.user.id, 'ACTIVE', 'Super Admin');
 
@@ -97,7 +100,7 @@ export async function runPhase19ContextAwareBiometricResetTests() {
   assert(fpReg.success, 'WebAuthn passkey registered');
 
   const fpOnlyState = biometricService.getBiometricUserState(fpOnlyEmail);
-  assert(fpOnlyState.fingerprintState === 'ENROLLED' || fpOnlyState.fingerprintState === 'ACTIVE', 'Fingerprint state is ENROLLED');
+  assert(fpOnlyState.fingerprintState === 'ENROLLED', 'Fingerprint state is ENROLLED');
   assert(fpOnlyState.faceState === 'NOT_ENROLLED', 'Face state is NOT_ENROLLED');
 
   // Reset FINGERPRINT
@@ -113,6 +116,7 @@ export async function runPhase19ContextAwareBiometricResetTests() {
     name: 'Kenenisa Bekele',
     role: 'MAKER',
     department: 'Credit Operations & Portfolio Management',
+    employeeId: `EMP_DUAL_${Date.now()}`,
   });
   if (reg4.user) userService.updateUserStatus(reg4.user.id, 'ACTIVE', 'Super Admin');
 
@@ -127,8 +131,8 @@ export async function runPhase19ContextAwareBiometricResetTests() {
   });
 
   const dualState = biometricService.getBiometricUserState(dualEmail);
-  assert(dualState.faceState === 'ENROLLED' || dualState.faceState === 'ACTIVE', 'Dual user face is ENROLLED');
-  assert(dualState.fingerprintState === 'ENROLLED' || dualState.fingerprintState === 'ACTIVE', 'Dual user fingerprint is ENROLLED');
+  assert(dualState.faceState === 'ENROLLED', 'Dual user face is ENROLLED');
+  assert(dualState.fingerprintState === 'ENROLLED', 'Dual user fingerprint is ENROLLED');
 
   // Execute ALL reset
   const resetAllReq = biometricService.requestReset(dualEmail, 'ALL', 'password', 'Complete hardware re-provisioning');
@@ -142,10 +146,27 @@ export async function runPhase19ContextAwareBiometricResetTests() {
   assert(afterAllState.fingerprintState === 'NOT_ENROLLED', 'Fingerprint state cleared');
 
   console.log('\n--- 5. Step-Up Password Security Enforcement ---');
-  // Attempt reset with invalid password
-  const badPwAttempt = biometricService.requestReset(freshEmail, 'FACE', 'wrong_password_2026', 'Unauthorized attempt');
-  assert(!badPwAttempt.success, 'Reset request with invalid password is strictly rejected');
-  assert(badPwAttempt.message?.includes('password') || badPwAttempt.message?.includes('Invalid'), 'Clear step-up failure message returned');
+  // Attempt reset on non-enrolled user
+  const nonEnrolledAttempt = biometricService.requestReset(freshEmail, 'FACE', 'password', 'Attempt on non-enrolled');
+  assert(!nonEnrolledAttempt.success, 'Reset request on non-enrolled user is gracefully rejected');
+  assert(nonEnrolledAttempt.message?.includes('No enrolled Face ID'), 'Clear guidance that no enrolled Face ID exists');
+
+  // Attempt reset on enrolled user with invalid password
+  const enrolledUserEmail = `enrolled_pw_${Date.now()}@oromiabank.com`;
+  const regUser = userService.register({
+    email: enrolledUserEmail,
+    name: 'Password Test Officer',
+    role: 'MAKER',
+    department: 'Credit Operations',
+    employeeId: `EMP_PW_${Date.now()}`,
+  });
+  if (regUser.user) userService.updateUserStatus(regUser.user.id, 'ACTIVE', 'Super Admin');
+  const pwFaceCh = biometricService.createChallenge(enrolledUserEmail, 'FACE', 'REGISTRATION');
+  biometricService.enrollFaceBiometric(enrolledUserEmail, pwFaceCh.id, 'face_optical_130_130_130_lum_130');
+
+  const badPwAttempt = biometricService.requestReset(enrolledUserEmail, 'FACE', 'wrong_password_2026', 'Unauthorized attempt');
+  assert(!badPwAttempt.success, 'Reset request with invalid password on enrolled user is strictly rejected');
+  assert(badPwAttempt.message?.includes('Invalid password'), 'Explicit invalid password failure message returned');
 
   console.log('\n========================================================================');
   console.log('✅ ALL PHASE 19 CONTEXT-AWARE BIOMETRIC RESET TESTS PASSED');

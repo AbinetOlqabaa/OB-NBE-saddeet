@@ -360,6 +360,9 @@ import { runPhase13BiometricResetRecoveryDevicesTests } from './phase13-biometri
 import { runPhase14BiometricHardeningPrivacyComplianceTests } from './phase14-biometric-hardening-privacy-compliance.test.ts';
 import { runPhase15BiometricE2EHardwareValidationAcceptanceTests } from './phase15-biometric-e2e-hardware-validation-acceptance.test.ts';
 import { runPhase16FaceIdCameraLifecycleTests } from './phase16-face-id-camera-lifecycle.test.ts';
+import { runPhase17ImageQualityAdaptiveMatchingTests } from './phase17-image-quality-adaptive-matching.test.ts';
+import { runPhase18LoginFormProductionCleanupTests } from './phase18-login-form-production-cleanup.test.ts';
+import { runPhase19ContextAwareBiometricResetTests } from './phase19-context-aware-biometric-reset.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -376,6 +379,9 @@ async function runFullApplicationTestSuite() {
   await runPhase14BiometricHardeningPrivacyComplianceTests();
   await runPhase15BiometricE2EHardwareValidationAcceptanceTests();
   await runPhase16FaceIdCameraLifecycleTests();
+  await runPhase17ImageQualityAdaptiveMatchingTests();
+  await runPhase18LoginFormProductionCleanupTests();
+  await runPhase19ContextAwareBiometricResetTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();
   await runResponsiveUiAndLayoutTests();

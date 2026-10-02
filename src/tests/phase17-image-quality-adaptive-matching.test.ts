@@ -67,6 +67,7 @@ export async function runPhase17ImageQualityAdaptiveMatchingTests() {
     name: 'Tsegaye Gebremedhin',
     role: 'MAKER',
     department: 'Credit Operations & Portfolio Management',
+    employeeId: `EMP_QUAL_${Date.now()}`,
   });
   if (regUser.user) {
     userService.updateUserStatus(regUser.user.id, 'ACTIVE', 'Compliance Admin');
