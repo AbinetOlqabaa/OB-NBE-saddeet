@@ -5,6 +5,9 @@
 
 import * as XLSX from 'xlsx';
 import type { ReportMetadata, ReportSubmission, DynamicRowRecord } from '../types/regulatory.ts';
+import { exportRegulatoryReportXLSX, ReportXlsxExportOptions } from './regulatoryReportXlsxExport.ts';
+
+export { exportRegulatoryReportXLSX, type ReportXlsxExportOptions };
 
 export interface ExcelImportResult {
   success: boolean;
@@ -75,6 +78,16 @@ export class ExcelService {
     }
 
     return wb;
+  }
+
+  /**
+   * Exports an active or historical regulatory report submission to an NBE-compliant .xlsx workbook.
+   */
+  public static exportSubmission(
+    submission: ReportSubmission,
+    options?: ReportXlsxExportOptions
+  ): void {
+    exportRegulatoryReportXLSX(submission, options);
   }
 
   /**

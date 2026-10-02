@@ -46,6 +46,7 @@ import { departmentService } from '../services/departmentService.ts';
 import { SwipeableCard } from './SwipeableCard.tsx';
 import { haptics } from '../utils/haptics.ts';
 import { exportRegulatoryReportPDF } from '../utils/regulatoryReportPdfExport.ts';
+import { exportRegulatoryReportXLSX } from '../utils/regulatoryReportXlsxExport.ts';
 
 interface MakerWorkspaceProps {
   templates: ReportMetadata[];
@@ -823,6 +824,17 @@ export const MakerWorkspace: React.FC<MakerWorkspaceProps> = ({
                             >
                               <FileCheck className="w-3 h-3 text-ob-indigo-600 dark:text-ob-indigo-400" />
                               <span>PDF</span>
+                            </button>
+
+                            {/* Export NBE-compliant XLSX */}
+                            <button
+                              type="button"
+                              onClick={() => exportRegulatoryReportXLSX(sub, { officerName: currentUser.name, officerRole: currentUser.role })}
+                              className="px-2 py-1 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-bold rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Export active submission to NBE-compliant Excel .xlsx for offline review"
+                            >
+                              <Download className="w-3 h-3 text-slate-500 dark:text-slate-400" />
+                              <span>XLSX</span>
                             </button>
 
                             {/* Submit to Checker */}

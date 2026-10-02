@@ -363,6 +363,7 @@ import { runPhase16FaceIdCameraLifecycleTests } from './phase16-face-id-camera-l
 import { runPhase17ImageQualityAdaptiveMatchingTests } from './phase17-image-quality-adaptive-matching.test.ts';
 import { runPhase18LoginFormProductionCleanupTests } from './phase18-login-form-production-cleanup.test.ts';
 import { runPhase19ContextAwareBiometricResetTests } from './phase19-context-aware-biometric-reset.test.ts';
+import { runXlsxExportAndDynamicValidationTests } from './xlsx-export-and-dynamic-validation.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -382,6 +383,7 @@ async function runFullApplicationTestSuite() {
   await runPhase17ImageQualityAdaptiveMatchingTests();
   await runPhase18LoginFormProductionCleanupTests();
   await runPhase19ContextAwareBiometricResetTests();
+  await runXlsxExportAndDynamicValidationTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();
   await runResponsiveUiAndLayoutTests();

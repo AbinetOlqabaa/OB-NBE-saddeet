@@ -17,6 +17,8 @@ import { ExcelService } from '../utils/excelService.ts';
 import { Pagination } from './Pagination.tsx';
 import { PdfReportGenerator } from '../utils/pdfReportGenerator.ts';
 import { exportRegulatoryReportPDF } from '../utils/regulatoryReportPdfExport.ts';
+import { exportRegulatoryReportXLSX } from '../utils/regulatoryReportXlsxExport.ts';
+import { FieldAuditHoverTool } from './FieldAuditHoverTool.tsx';
 import { InputAccessoryView } from './InputAccessoryView.tsx';
 import { vibrate, haptics } from '../utils/haptics.ts';
 import {
@@ -71,6 +73,9 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
   const [importNotification, setImportNotification] = useState<string | null>(null);
   const [activeFormTab, setActiveFormTab] = useState<'ITEMS' | 'DYNAMIC_SCHEDULES'>('ITEMS');
   const [focusedFieldCode, setFocusedFieldCode] = useState<string | null>(null);
+  const [sessionEditsHistory, setSessionEditsHistory] = useState<
+    Record<string, Array<{ timestamp: string; value: string | number; modifiedBy: string; modifiedByRole?: string }>>
+  >({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,6 +109,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
 
     let matchesType = true;
     if (itemTypeFilter === 'REQUIRED') matchesType = !!item._required;
+    else if (itemTypeFilter === 'ERRORS_ONLY') matchesType = ValidationEngine.hasFieldError(validation, item.Code);
     else if (itemTypeFilter === 'FORMULA_TOTAL') matchesType = isFormula || !!item.isTotal;
     else if (itemTypeFilter === 'DIRECT_INPUT') matchesType = !isFormula && !item.isTotal;
     else if (itemTypeFilter === 'POPULATED') matchesType = isPopulated;
@@ -212,6 +218,21 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
     const calculated = recalculateAndValidate(nextValues, dynamicRows);
     setValues(calculated);
     setHasUnsavedChanges(true);
+
+    // Record session edit history for cell-level audit trail
+    setSessionEditsHistory((prev) => {
+      const existing = prev[code] || [];
+      const newEntry = {
+        timestamp: new Date().toISOString(),
+        value,
+        modifiedBy: currentUser.name || 'Maker Officer',
+        modifiedByRole: currentUser.role || 'MAKER',
+      };
+      return {
+        ...prev,
+        [code]: [...existing, newEntry],
+      };
+    });
   };
 
   const handleAddDynamicRow = (areaId: number) => {
@@ -284,18 +305,19 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
   };
 
   const handleExportExcel = () => {
-    const binary = ExcelService.exportToBinary(metadata, values, dynamicRows);
-    const blob = new Blob([binary as any], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${metadata.Code}_${metadata.FinYear}_SUBMISSION.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    vibrate(20);
+    exportRegulatoryReportXLSX(
+      {
+        ...submission,
+        values,
+        dynamicRows,
+        templateSnapshot: metadata,
+      },
+      {
+        officerName: currentUser.name,
+        officerRole: currentUser.role,
+      }
+    );
   };
 
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -440,6 +462,11 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                 type="button"
                 onClick={() => setSubmitModalOpen(true)}
                 disabled={!validation?.isValid}
+                title={
+                  validation?.isValid
+                    ? 'Submit prepared regulatory return for Checker 4-eyes review'
+                    : `Cannot submit: ${validation?.errorsCount || 0} unresolved field-level validation error(s) must be fixed first.`
+                }
                 className={`min-h-[44px] sm:min-h-[34px] flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold rounded-xl sm:rounded-lg transition-colors shadow-2xs touch-manipulation touch-press ${
                   validation?.isValid
                     ? 'bg-ob-indigo-600 text-white hover:bg-ob-indigo-700 cursor-pointer'
@@ -559,12 +586,33 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
             </span>
 
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
+              {validation && !validation.isValid && (
+                <button
+                  type="button"
+                  onClick={() => setItemTypeFilter(itemTypeFilter === 'ERRORS_ONLY' ? 'ALL' : 'ERRORS_ONLY')}
+                  className={`min-h-[44px] sm:min-h-[32px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-xl sm:rounded-lg border transition-all cursor-pointer touch-manipulation touch-press ${
+                    itemTypeFilter === 'ERRORS_ONLY'
+                      ? 'bg-rose-600 text-white border-rose-700 shadow-2xs'
+                      : 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/80 border-rose-300 dark:border-rose-800 hover:bg-rose-100'
+                  }`}
+                  title="Filter table to view unresolved validation errors"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-500 dark:text-rose-400" />
+                  <span>{itemTypeFilter === 'ERRORS_ONLY' ? 'Showing Errors' : `${validation.errorsCount} Error(s)`}</span>
+                </button>
+              )}
+
               <select
                 value={itemTypeFilter}
                 onChange={(e) => setItemTypeFilter(e.target.value)}
                 className="min-h-[44px] sm:min-h-[32px] text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl sm:rounded-lg px-2.5 py-1.5 text-slate-700 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 focus:ring-ob-indigo-500 cursor-pointer shadow-2xs touch-manipulation touch-press"
               >
                 <option value="ALL" className="dark:bg-slate-900">All Items ({metadata.ReturnItemsList.length})</option>
+                {validation && validation.errorsCount > 0 && (
+                  <option value="ERRORS_ONLY" className="dark:bg-slate-900 text-rose-600 font-bold">
+                    ⚠️ Validation Errors ({validation.errorsCount})
+                  </option>
+                )}
                 <option value="REQUIRED" className="dark:bg-slate-900">Mandatory Fields Only</option>
                 <option value="DIRECT_INPUT" className="dark:bg-slate-900">Direct Input Cells Only</option>
                 <option value="FORMULA_TOTAL" className="dark:bg-slate-900">Formula / Total Cells</option>
@@ -600,83 +648,135 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                   const currentVal = values[item.Code] !== undefined ? values[item.Code] : '';
                   const isFormula = metadata.Formulas.some((f) => f.targetCode === item.Code);
                   const formulaDef = metadata.Formulas.find((f) => f.targetCode === item.Code);
+                  const fieldError = ValidationEngine.getFieldError(validation, item.Code);
+                  const hasError = !!fieldError && fieldError.severity === 'ERROR';
+                  const hasWarning = !!fieldError && fieldError.severity === 'WARNING';
 
                   return (
                     <tr
                       key={item.Code}
                       className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
-                        item.isTotal ? 'bg-slate-50/70 dark:bg-slate-800/40 font-semibold' : ''
+                        hasError
+                          ? 'bg-rose-50/40 dark:bg-rose-950/20'
+                          : hasWarning
+                          ? 'bg-amber-50/30 dark:bg-amber-950/15'
+                          : item.isTotal
+                          ? 'bg-slate-50/70 dark:bg-slate-800/40 font-semibold'
+                          : ''
                       }`}
                     >
-                      <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-400 select-all font-medium text-[11px] sm:text-xs">
-                        {item.Code}
-                      </td>
-                      <td className="py-2 px-3 text-slate-900 dark:text-slate-100">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5">
-                          <span className="leading-snug">{item._description}</span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {item._required && <span className="text-rose-500 font-bold text-xs">*</span>}
-                            {isFormula && (
-                              <span
-                                className="inline-flex items-center gap-0.5 text-[10px] text-ob-indigo-700 dark:text-ob-indigo-300 bg-ob-indigo-50 dark:bg-ob-indigo-950 px-1 py-0.2 rounded border border-ob-indigo-200 dark:border-ob-indigo-800"
-                                title={`Calculated: ${formulaDef?.description || formulaDef?.expression}`}
-                              >
-                                <Calculator className="w-2.5 h-2.5" />
-                                Auto
-                              </span>
-                            )}
-                          </div>
+                      <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-400 select-all font-medium text-[11px] sm:text-xs align-top">
+                        <div className="flex items-center gap-1">
+                          {hasError && <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />}
+                          <span>{item.Code}</span>
                         </div>
                       </td>
-                      <td className="py-2 px-3 text-slate-400 dark:text-slate-500 font-mono text-[10px] hidden sm:table-cell">
+                      <td className="py-2 px-3 text-slate-900 dark:text-slate-100 align-top">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5">
+                            <span className="leading-snug">{item._description}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {item._required && <span className="text-rose-500 font-bold text-xs" title="Mandatory regulatory field">*</span>}
+                              {isFormula && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[10px] text-ob-indigo-700 dark:text-ob-indigo-300 bg-ob-indigo-50 dark:bg-ob-indigo-950 px-1 py-0.2 rounded border border-ob-indigo-200 dark:border-ob-indigo-800"
+                                  title={`Calculated: ${formulaDef?.description || formulaDef?.expression}`}
+                                >
+                                  <Calculator className="w-2.5 h-2.5" />
+                                  Auto
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Real-time field validation error message */}
+                          {fieldError && (
+                            <div
+                              className={`flex items-start gap-1.5 text-[11px] font-medium px-2 py-1 rounded-md border animate-in fade-in duration-150 ${
+                                hasError
+                                  ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-200 dark:border-rose-900/80 text-rose-700 dark:text-rose-300'
+                                  : 'bg-amber-50 dark:bg-amber-950/80 border-amber-200 dark:border-amber-900/80 text-amber-700 dark:text-amber-300'
+                              }`}
+                            >
+                              <AlertCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${hasError ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`} />
+                              <span>{fieldError.message}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 text-slate-400 dark:text-slate-500 font-mono text-[10px] hidden sm:table-cell align-top">
                         {item._dataType}
                       </td>
-                      <td className="py-1.5 px-3 text-right">
-                        {isEffectiveReadOnly ? (
-                          <div className="font-mono tabular-nums text-slate-900 dark:text-slate-100 py-1 text-xs">
-                            {currentVal !== '' && currentVal !== undefined ? (
-                              item._dataType === 'NUMERIC' && typeof currentVal === 'number'
-                                ? currentVal.toLocaleString('en-US')
-                                : String(currentVal)
+                      <td className="py-1.5 px-3 text-right align-top">
+                        <div className="flex items-center justify-end gap-1 w-full">
+                          <div className="flex-1">
+                            {isEffectiveReadOnly ? (
+                              <div className="font-mono tabular-nums text-slate-900 dark:text-slate-100 py-1 text-xs text-right">
+                                {currentVal !== '' && currentVal !== undefined ? (
+                                  item._dataType === 'NUMERIC' && typeof currentVal === 'number'
+                                    ? currentVal.toLocaleString('en-US')
+                                    : String(currentVal)
+                                ) : (
+                                  <span className="text-slate-300 dark:text-slate-600">-</span>
+                                )}
+                              </div>
                             ) : (
-                              <span className="text-slate-300 dark:text-slate-600">-</span>
+                              <input
+                                id={`field-input-${item.Code}`}
+                                type={
+                                  item._dataType === 'NUMERIC'
+                                    ? 'text'
+                                    : item._dataType === 'DATE'
+                                    ? 'date'
+                                    : 'text'
+                                }
+                                inputMode={item._dataType === 'NUMERIC' ? 'decimal' : undefined}
+                                value={currentVal}
+                                readOnly={isFormula}
+                                placeholder={isFormula ? 'Auto' : '0.00'}
+                                onFocus={() => {
+                                  if (!isFormula) {
+                                    setFocusedFieldCode(item.Code);
+                                  }
+                                }}
+                                onChange={(e) => {
+                                  const rawVal = e.target.value;
+                                  let val: string | number = rawVal;
+                                  if (item._dataType === 'NUMERIC') {
+                                    if (rawVal === '') {
+                                      val = '';
+                                    } else {
+                                      const num = Number(rawVal);
+                                      val = !isNaN(num) && rawVal.trim() !== '' ? num : rawVal;
+                                    }
+                                  }
+                                  handleFieldChange(item.Code, val);
+                                }}
+                                className={`w-full min-h-[44px] sm:min-h-[32px] px-2.5 py-1.5 text-xs border rounded-lg transition-colors touch-manipulation ${
+                                  isFormula
+                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 cursor-not-allowed text-right font-mono tabular-nums font-semibold'
+                                    : hasError
+                                    ? 'bg-rose-50/60 dark:bg-rose-950/40 border-rose-400 dark:border-rose-600 text-slate-900 dark:text-white focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none text-right font-mono tabular-nums font-semibold'
+                                    : hasWarning
+                                    ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-400 dark:border-amber-600 text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none text-right font-mono tabular-nums font-medium'
+                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:border-ob-indigo-500 focus:outline-none text-right font-mono tabular-nums font-medium'
+                                }`}
+                              />
                             )}
                           </div>
-                        ) : (
-                          <input
-                            id={`field-input-${item.Code}`}
-                            type={
-                              item._dataType === 'NUMERIC'
-                                ? 'number'
-                                : item._dataType === 'DATE'
-                                ? 'date'
-                                : 'text'
-                            }
-                            inputMode={item._dataType === 'NUMERIC' ? 'decimal' : undefined}
-                            value={currentVal}
-                            readOnly={isFormula}
-                            placeholder={isFormula ? 'Auto' : '0.00'}
-                            onFocus={() => {
-                              if (!isFormula) {
-                                setFocusedFieldCode(item.Code);
-                              }
-                            }}
-                            onChange={(e) => {
-                              const val =
-                                item._dataType === 'NUMERIC'
-                                  ? e.target.value === ''
-                                    ? ''
-                                    : Number(e.target.value)
-                                  : e.target.value;
-                              handleFieldChange(item.Code, val);
-                            }}
-                            className={`w-full min-h-[44px] sm:min-h-[32px] px-2.5 py-1.5 text-xs border rounded-lg transition-colors touch-manipulation ${
-                              isFormula
-                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 cursor-not-allowed text-right font-mono tabular-nums font-semibold'
-                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:border-ob-indigo-500 focus:outline-none text-right font-mono tabular-nums font-medium'
-                            }`}
+
+                          {/* Field Audit Hover Tool */}
+                          <FieldAuditHoverTool
+                            fieldCode={item.Code}
+                            fieldDescription={item._description}
+                            dataType={item._dataType}
+                            currentValue={currentVal}
+                            submission={submission}
+                            sessionEdits={sessionEditsHistory[item.Code] || []}
+                            onRevertValue={(revertedVal) => handleFieldChange(item.Code, revertedVal)}
+                            isReadOnly={isEffectiveReadOnly || isFormula}
                           />
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );
