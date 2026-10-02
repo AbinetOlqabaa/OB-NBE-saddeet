@@ -54,12 +54,12 @@ function computeAutoColumnWidths(data: any[][]): XLSX.ColInfo[] {
 }
 
 /**
- * Exports any active regulatory report submission into an NBE-compliant .xlsx workbook.
+ * Generates an NBE-compliant multi-sheet .xlsx workbook object in-memory.
  */
-export function exportRegulatoryReportXLSX(
+export function generateRegulatoryReportWorkbook(
   submission: ReportSubmission,
   options: ReportXlsxExportOptions = {}
-): void {
+): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
 
   const reportDef: ReportMetadata =
@@ -258,6 +258,21 @@ export function exportRegulatoryReportXLSX(
   const wsRules = XLSX.utils.aoa_to_sheet(rulesAoa);
   wsRules['!cols'] = computeAutoColumnWidths(rulesAoa);
   XLSX.utils.book_append_sheet(wb, wsRules, 'Validation Checklist');
+
+  return wb;
+}
+
+/**
+ * Exports any active regulatory report submission into an NBE-compliant .xlsx workbook and triggers download.
+ */
+export function exportRegulatoryReportXLSX(
+  submission: ReportSubmission,
+  options: ReportXlsxExportOptions = {}
+): void {
+  const wb = generateRegulatoryReportWorkbook(submission, options);
+  const reportDef: ReportMetadata = submission.templateSnapshot || getReportByKey(submission.reportKey) || {
+    FinYear: submission.periodYear || new Date().getFullYear(),
+  } as any;
 
   // Trigger browser file download
   const cleanKey = submission.reportKey.replace(/[^a-zA-Z0-9_-]/g, '_');

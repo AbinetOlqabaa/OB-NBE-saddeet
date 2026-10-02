@@ -5,9 +5,17 @@
 
 import * as XLSX from 'xlsx';
 import type { ReportMetadata, ReportSubmission, DynamicRowRecord } from '../types/regulatory.ts';
-import { exportRegulatoryReportXLSX, ReportXlsxExportOptions } from './regulatoryReportXlsxExport.ts';
+import {
+  exportRegulatoryReportXLSX,
+  generateRegulatoryReportWorkbook,
+  ReportXlsxExportOptions,
+} from './regulatoryReportXlsxExport.ts';
 
-export { exportRegulatoryReportXLSX, type ReportXlsxExportOptions };
+export {
+  exportRegulatoryReportXLSX,
+  generateRegulatoryReportWorkbook,
+  type ReportXlsxExportOptions,
+};
 
 export interface ExcelImportResult {
   success: boolean;
