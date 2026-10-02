@@ -6,6 +6,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import dotenv from 'dotenv';
@@ -2719,19 +2720,24 @@ function ensureDjangoSimulatorRunning() {
 async function startServer() {
   ensureDjangoSimulatorRunning();
 
-  if (process.env.NODE_ENV !== 'production') {
+  const isCloudRun = Boolean(process.env.K_SERVICE);
+  const isProduction = process.env.NODE_ENV === 'production' || isCloudRun;
+  const distIndexHtml = path.resolve(__dirname, 'dist', 'index.html');
+  const distExists = fs.existsSync(distIndexHtml);
+
+  if (isProduction || distExists) {
+    // Production static serving
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(distIndexHtml);
+    });
+  } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    // Production static serving
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
   }
 
   const server = http.createServer(app);
