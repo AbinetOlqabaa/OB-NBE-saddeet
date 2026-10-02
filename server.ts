@@ -2692,6 +2692,9 @@ app.get('/api/health', (req, res) => {
 // -------------------------------------------------------------
 
 function ensureDjangoSimulatorRunning() {
+  if (process.env.NODE_ENV === 'production' || process.env.K_SERVICE) {
+    return;
+  }
   const checkUrl = 'http://127.0.0.1:8001/api/v1/nbe-simulator/gateway-health';
   fetch(checkUrl, { signal: AbortSignal.timeout(1500) })
     .then((r) => {
