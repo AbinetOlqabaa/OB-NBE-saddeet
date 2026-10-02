@@ -40,6 +40,7 @@ import { configService } from './configService.ts';
 import { indexedDbStorage } from './indexedDbStorage.ts';
 import { effectiveAccessEngine } from './effectiveAccessEngine.ts';
 import { realtimeSsotEngine } from './realtimeSsotEngine.ts';
+import { BrowserSafeEventEmitter } from '../utils/browserEventEmitter.ts';
 
 // Default Demo User Accounts with verified Oromia Bank departments
 export const DEMO_USERS: UserSession[] = [
@@ -115,6 +116,17 @@ export const DEMO_USERS: UserSession[] = [
 
 class SubmissionServiceClass {
   private submissions: Map<string, ReportSubmission> = new Map();
+  public readonly events = new BrowserSafeEventEmitter();
+
+  public onSubmissionChange(callback: (sub: ReportSubmission) => void): () => void {
+    this.events.on('submissionChange', callback);
+    return () => this.events.off('submissionChange', callback);
+  }
+
+  public onSubmissionsUpdated(callback: (subs: ReportSubmission[]) => void): () => void {
+    this.events.on('submissionsUpdated', callback);
+    return () => this.events.off('submissionsUpdated', callback);
+  }
 
   constructor() {
     this.seedInitialSubmissions();
@@ -721,6 +733,11 @@ class SubmissionServiceClass {
       console.warn('[SubmissionService] IndexedDB saveDraft warning:', err);
     });
 
+    try {
+      this.events.emit('submissionChange', submission);
+      this.events.emit('submissionsUpdated', this.getAll());
+    } catch (_) {}
+
     auditService.log({
       actorId: user.id,
       actorName: user.name,
@@ -909,6 +926,27 @@ class SubmissionServiceClass {
     }).catch((err) => {
       console.warn('[SubmissionService] IndexedDB updateDraft save warning:', err);
     });
+
+    try {
+      this.events.emit('submissionChange', updated);
+      this.events.emit('submissionsUpdated', this.getAll());
+      realtimeSsotEngine.publishEvent({
+        eventType: 'REPORT_CHANGED',
+        action: 'UPDATE_DRAFT',
+        domain: 'REPORT',
+        entityId: updated.id,
+        topic: `REPORT:${updated.reportKey}`,
+        actor: { id: user.id, name: user.name, role: user.role },
+        summary: `Report ${updated.reportKey} draft updated to v${nextVersion} by ${user.name}`,
+        payload: {
+          submissionId: updated.id,
+          reportKey: updated.reportKey,
+          version: updated.version,
+          updatedAt: updated.updatedAt,
+          status: updated.status,
+        },
+      });
+    } catch (_) {}
 
     auditService.log({
       actorId: user.id,
@@ -2217,8 +2255,10 @@ class SubmissionServiceClass {
         const maker = (s.makerName || '').toLowerCase();
         const nbeRef = (s.nbeReferenceNumber || '').toLowerCase();
         const dept = (s.department || '').toLowerCase();
+        const subId = s.id.toLowerCase();
 
         return (
+          subId.includes(q) ||
           rKey.includes(q) ||
           title.includes(q) ||
           desc.includes(q) ||

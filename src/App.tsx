@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ReportMetadata,
   ReportSubmission,
@@ -24,7 +24,7 @@ import { MakerWorkspace } from './components/MakerWorkspace';
 import { MakerLibraryView } from './components/MakerLibraryView';
 import { CheckerInbox } from './components/CheckerInbox';
 import { AuditorDashboard } from './components/AuditorDashboard';
-import { DynamicReportForm } from './components/DynamicReportForm';
+import { DynamicReportForm, NavigationGuardHandler } from './components/DynamicReportForm';
 import { NbeSimulatorView } from './components/NbeSimulatorView';
 import { Phase2SSOTView } from './components/Phase2SSOTView';
 import { AuditTrailView } from './components/AuditTrailView';
@@ -50,6 +50,10 @@ import {
   ShieldAlert,
   CheckCircle2,
   X,
+  AlertTriangle,
+  RefreshCw,
+  LogOut,
+  Loader2,
 } from 'lucide-react';
 
 export interface ToastNotification {
@@ -142,6 +146,66 @@ export default function App() {
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
+  // Phase 27 & 28: Navigation Guard & Leave-Page Safety State
+  const navigationGuardRef = useRef<NavigationGuardHandler | null>(null);
+  const [leaveSafetyModalOpen, setLeaveSafetyModalOpen] = useState(false);
+  const [pendingNavigationAction, setPendingNavigationAction] = useState<{
+    type: 'SWITCH_TAB' | 'CLOSE_FORM';
+    targetTab?: ViewTab;
+    errorMsg?: string;
+  } | null>(null);
+
+  // Phase 28 & 27: Explicit Logout Confirmation Dialog with Autosave Flush
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutFlushError, setLogoutFlushError] = useState<string | null>(null);
+
+  // Subscribe to authoritative SSOT updates from submissionService (Requirement 9)
+  useEffect(() => {
+    const unsub = submissionService.onSubmissionsUpdated((subs) => {
+      setSubmissions([...subs]);
+    });
+    return () => unsub();
+  }, []);
+
+  // Safe navigation helper that flushes pending draft changes before switching view
+  const handleSafeTabChange = async (targetTab: ViewTab) => {
+    if (editingSubmission && navigationGuardRef.current?.hasUnsavedChanges()) {
+      try {
+        const saved = await navigationGuardRef.current.flush();
+        if (!saved) {
+          setPendingNavigationAction({ type: 'SWITCH_TAB', targetTab });
+          setLeaveSafetyModalOpen(true);
+          return;
+        }
+      } catch (err: any) {
+        setPendingNavigationAction({ type: 'SWITCH_TAB', targetTab, errorMsg: err.message });
+        setLeaveSafetyModalOpen(true);
+        return;
+      }
+    }
+    setActiveTab(targetTab);
+    setEditingSubmission(null);
+  };
+
+  const handleCloseEditingSubmission = async () => {
+    if (editingSubmission && navigationGuardRef.current?.hasUnsavedChanges()) {
+      try {
+        const saved = await navigationGuardRef.current.flush();
+        if (!saved) {
+          setPendingNavigationAction({ type: 'CLOSE_FORM' });
+          setLeaveSafetyModalOpen(true);
+          return;
+        }
+      } catch (err: any) {
+        setPendingNavigationAction({ type: 'CLOSE_FORM', errorMsg: err.message });
+        setLeaveSafetyModalOpen(true);
+        return;
+      }
+    }
+    setEditingSubmission(null);
+  };
+
   // Horizontal swipe gesture navigation across Sidebar tabs on mobile viewport
   const {
     containerRef: mainViewportRef,
@@ -155,8 +219,7 @@ export default function App() {
     currentTab: activeTab,
     userRole: currentUser?.role,
     onSelectTab: (tab) => {
-      setActiveTab(tab);
-      setEditingSubmission(null);
+      handleSafeTabChange(tab as ViewTab);
       setIsMobileDrawerOpen(false);
     },
     enabled: !editingSubmission && Boolean(currentUser),
@@ -204,8 +267,7 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         if (currentUser.role === 'MAKER' || currentUser.role === 'ADMIN') {
-          setActiveTab('MAKER_WORKSPACE');
-          setEditingSubmission(null);
+          handleSafeTabChange('MAKER_WORKSPACE');
           showToast('Navigated to Maker Workspace (Ctrl+M)');
         } else {
           showToast('Access restricted: Maker Workspace requires MAKER or ADMIN role.');
@@ -216,8 +278,7 @@ export default function App() {
       // 4b. Ctrl+L or Cmd+L: Jump to Maker Library & Dossiers
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
-        setActiveTab('LIBRARY');
-        setEditingSubmission(null);
+        handleSafeTabChange('LIBRARY');
         showToast('Navigated to Maker Library & Dossiers (Ctrl+L)');
         return;
       }
@@ -226,8 +287,7 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
         e.preventDefault();
         if (currentUser.role === 'CHECKER' || currentUser.role === 'ADMIN') {
-          setActiveTab('CHECKER_INBOX');
-          setEditingSubmission(null);
+          handleSafeTabChange('CHECKER_INBOX');
           showToast('Navigated to Checker Inbox (Ctrl+Shift+C)');
         }
         return;
@@ -237,8 +297,7 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         if (currentUser.role === 'ADMIN') {
-          setActiveTab('ADMIN_DASHBOARD');
-          setEditingSubmission(null);
+          handleSafeTabChange('ADMIN_DASHBOARD');
           showToast('Navigated to Admin Governance (Ctrl+Shift+A)');
         }
         return;
@@ -248,8 +307,7 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         if (currentUser.role === 'ADMIN') {
-          setActiveTab('DEPT_REPORT_MANAGEMENT');
-          setEditingSubmission(null);
+          handleSafeTabChange('DEPT_REPORT_MANAGEMENT');
           showToast('Navigated to Departments & Reports Governance (Ctrl+Shift+M)');
         }
         return;
@@ -259,8 +317,7 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         if (currentUser.role === 'CHECKER' || currentUser.role === 'ADMIN') {
-          setActiveTab('NBE_SIMULATOR');
-          setEditingSubmission(null);
+          handleSafeTabChange('NBE_SIMULATOR');
           showToast('Navigated to NBE API Gateway Simulator (Ctrl+Shift+N)');
         } else {
           showToast('Access restricted: NBE Simulator requires CHECKER or ADMIN role.');
@@ -271,8 +328,7 @@ export default function App() {
       // 8. Ctrl+Shift+S / Cmd+Shift+S: Jump to Phase 2 SSOT
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        setActiveTab('PHASE2_SSOT');
-        setEditingSubmission(null);
+        handleSafeTabChange('PHASE2_SSOT');
         showToast('Navigated to Phase 2 SSOT Medallion Lakehouse (Ctrl+Shift+S)');
         return;
       }
@@ -280,8 +336,7 @@ export default function App() {
       // 9. Ctrl+Shift+L / Cmd+Shift+L: Jump to Audit Trail
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
-        setActiveTab('AUDIT_TRAIL');
-        setEditingSubmission(null);
+        handleSafeTabChange('AUDIT_TRAIL');
         showToast('Navigated to Regulatory Audit Trail (Ctrl+Shift+L)');
         return;
       }
@@ -289,8 +344,7 @@ export default function App() {
       // 10. Ctrl+Shift+D / Cmd+Shift+D: Jump to Documentation
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
-        setActiveTab('DOCUMENTATION');
-        setEditingSubmission(null);
+        handleSafeTabChange('DOCUMENTATION');
         showToast('Navigated to NBE Specifications & Documentation (Ctrl+Shift+D)');
         return;
       }
@@ -298,8 +352,7 @@ export default function App() {
       // 11. Ctrl+Shift+H / Cmd+Shift+H: Jump to System Health
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
         e.preventDefault();
-        setActiveTab('SYSTEM_HEALTH');
-        setEditingSubmission(null);
+        handleSafeTabChange('SYSTEM_HEALTH');
         showToast('Navigated to System Health Telemetry Dashboard (Ctrl+Shift+H)');
         return;
       }
@@ -425,10 +478,36 @@ export default function App() {
     );
   };
 
-  // Logout handler
-  const handleLogout = () => {
+  // Phase 28 & 27: Explicit Logout Handlers with Pending Report Flush
+  const handleInitiateLogout = () => {
+    setLogoutFlushError(null);
+    setLogoutModalOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    if (editingSubmission && navigationGuardRef.current?.hasUnsavedChanges()) {
+      setIsLoggingOut(true);
+      try {
+        const saved = await navigationGuardRef.current.flush();
+        if (!saved) {
+          setLogoutFlushError('Failed to persist pending changes to the server.');
+          setIsLoggingOut(false);
+          return;
+        }
+      } catch (err: any) {
+        setLogoutFlushError(err.message || 'Server persistence failed.');
+        setIsLoggingOut(false);
+        return;
+      }
+    }
+    executeLogout();
+  };
+
+  const executeLogout = () => {
     setCurrentUser(null);
     setEditingSubmission(null);
+    setLogoutModalOpen(false);
+    setIsLoggingOut(false);
     try {
       localStorage.removeItem('ob_logged_in_user');
     } catch {}
@@ -484,28 +563,27 @@ export default function App() {
     showToast('Submission archived from Checker queue.');
   };
 
-  // Save changes to current submission
-  const handleSaveDraft = (
+  // Authoritative Save changes to current submission (SSOT Server Confirmation)
+  const handleSaveDraft = async (
     values: Record<string, string | number>,
     dynamicRows: Record<number, DynamicRowRecord[]>,
     expectedVersion?: number
-  ) => {
-    if (!editingSubmission || !currentUser) return;
-    try {
-      vibrate(25);
-      const updated = submissionService.updateDraft(
-        editingSubmission.id,
-        values,
-        dynamicRows,
-        currentUser,
-        expectedVersion
-      );
-      setEditingSubmission(updated);
-      setSubmissions(submissionService.getAll());
-      showToast('Changes saved to draft.');
-    } catch (err: any) {
-      alert(`Save error: ${err.message}`);
+  ): Promise<ReportSubmission> => {
+    if (!editingSubmission || !currentUser) {
+      throw new Error('No active editing submission or user session');
     }
+    vibrate(25);
+    const updated = submissionService.updateDraft(
+      editingSubmission.id,
+      values,
+      dynamicRows,
+      currentUser,
+      expectedVersion
+    );
+    setEditingSubmission(updated);
+    setSubmissions(submissionService.getAll());
+    showToast(`Draft ${updated.reportKey} (v${updated.version}) persisted to server SSOT.`);
+    return updated;
   };
 
   // Reuse submitted / historical return as new draft
@@ -656,10 +734,9 @@ export default function App() {
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={toggleSidebar}
         onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
-        onLogout={handleLogout}
+        onLogout={handleInitiateLogout}
         onNavigateToSimulator={() => {
-          setActiveTab('NBE_SIMULATOR');
-          setEditingSubmission(null);
+          handleSafeTabChange('NBE_SIMULATOR');
         }}
       />
 
@@ -669,8 +746,7 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onSelectTab={(tab) => {
-            setActiveTab(tab);
-            setEditingSubmission(null);
+            handleSafeTabChange(tab);
             setIsMobileDrawerOpen(false);
           }}
           currentUser={currentUser}
@@ -679,7 +755,7 @@ export default function App() {
           onToggleCollapse={toggleSidebar}
           isMobileDrawerOpen={isMobileDrawerOpen}
           onCloseMobileDrawer={() => setIsMobileDrawerOpen(false)}
-          onLogout={handleLogout}
+          onLogout={handleInitiateLogout}
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
           onOpenShortcutsModal={() => setIsShortcutsModalOpen(true)}
         />
@@ -724,12 +800,15 @@ export default function App() {
                 (editingSubmission.status !== 'DRAFT' &&
                   editingSubmission.status !== 'CORRECTION_REQUIRED')
               }
-              onBack={() => setEditingSubmission(null)}
+              onBack={handleCloseEditingSubmission}
               onSave={handleSaveDraft}
               onSubmitToChecker={(comment, expectedVer) => {
                 handleSubmitToChecker(editingSubmission.id, comment);
               }}
               onReuseSubmission={handleReuseSubmission}
+              onRegisterNavigationGuard={(guard) => {
+                navigationGuardRef.current = guard;
+              }}
             />
           ) : !isTabAuthorizedForRole(activeTab, currentUser.role) ? (
             <div className="flex-1 flex items-center justify-center p-4">
@@ -752,8 +831,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setActiveTab(getInitialTabForRole(currentUser.role));
-                    setEditingSubmission(null);
+                    handleSafeTabChange(getInitialTabForRole(currentUser.role));
                   }}
                   className="w-full py-2.5 px-4 rounded-xl bg-ob-indigo-600 hover:bg-ob-indigo-700 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
                 >
@@ -993,6 +1071,163 @@ export default function App() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Phase 27: Leave-Page Navigation Safety Modal */}
+      {leaveSafetyModalOpen && pendingNavigationAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Unsaved Regulatory Return Changes
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  You have unsaved changes in return <strong className="font-mono">{editingSubmission?.reportKey}</strong>.
+                  The system attempted to flush them to the server before navigating, but persistence failed:
+                </p>
+                {pendingNavigationAction.errorMsg && (
+                  <div className="mt-2 p-2 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-300 text-[11px] font-mono break-words">
+                    {pendingNavigationAction.errorMsg}
+                  </div>
+                )}
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">
+                  Navigating away now will permanently discard your unsaved work.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setLeaveSafetyModalOpen(false);
+                  setPendingNavigationAction(null);
+                }}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+              >
+                Stay on Return
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLeaveSafetyModalOpen(false);
+                  if (pendingNavigationAction.type === 'SWITCH_TAB' && pendingNavigationAction.targetTab) {
+                    setActiveTab(pendingNavigationAction.targetTab);
+                  }
+                  setEditingSubmission(null);
+                  setPendingNavigationAction(null);
+                }}
+                className="px-3.5 py-1.5 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 hover:bg-rose-100 dark:hover:bg-rose-900 border border-rose-300 dark:border-rose-800 rounded-lg transition-colors cursor-pointer"
+              >
+                Discard & Leave
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const saved = await navigationGuardRef.current?.flush();
+                    if (saved) {
+                      setLeaveSafetyModalOpen(false);
+                      if (pendingNavigationAction.type === 'SWITCH_TAB' && pendingNavigationAction.targetTab) {
+                        setActiveTab(pendingNavigationAction.targetTab);
+                      }
+                      setEditingSubmission(null);
+                      setPendingNavigationAction(null);
+                    }
+                  } catch (err: any) {
+                    setPendingNavigationAction((prev) => (prev ? { ...prev, errorMsg: err.message } : null));
+                  }
+                }}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-ob-indigo-600 hover:bg-ob-indigo-700 rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry Save</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 28 & 27: Explicit Logout Confirmation Dialog with Autosave Flush */}
+      {logoutModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-ob-indigo-100 dark:bg-ob-indigo-950 flex items-center justify-center text-ob-indigo-600 dark:text-ob-indigo-400 shrink-0">
+                <LogOut className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Confirm Portal Sign Out
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  Are you sure you want to end your session as <strong>{currentUser?.name}</strong> ({currentUser?.role})?
+                </p>
+                {editingSubmission && navigationGuardRef.current?.hasUnsavedChanges() && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Pending return changes detected:</span>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                        Changes to return <strong>{editingSubmission.reportKey}</strong> will be flushed to the server before sign out.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {logoutFlushError && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs">
+                    <span className="font-bold">Save failed: </span>
+                    <span>{logoutFlushError}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setLogoutModalOpen(false)}
+                className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              {logoutFlushError ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={executeLogout}
+                    className="px-3.5 py-1.5 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 hover:bg-rose-100 dark:hover:bg-rose-900 border border-rose-300 dark:border-rose-800 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Discard & Sign Out
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmLogout}
+                    disabled={isLoggingOut}
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-ob-indigo-600 hover:bg-ob-indigo-700 rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    {isLoggingOut && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Retry Save & Sign Out</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleConfirmLogout}
+                  disabled={isLoggingOut}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-ob-indigo-600 hover:bg-ob-indigo-700 rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
+                >
+                  {isLoggingOut && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Confirm Sign Out</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

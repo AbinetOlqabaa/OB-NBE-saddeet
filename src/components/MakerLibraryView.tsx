@@ -55,6 +55,7 @@ import {
   RemovalImpactAssessment,
 } from '../types/regulatory.ts';
 import { submissionService } from '../services/submissionService.ts';
+import { realtimeSsotEngine } from '../services/realtimeSsotEngine.ts';
 import { auditService } from '../services/auditService.ts';
 import { effectiveAccessEngine } from '../services/effectiveAccessEngine.ts';
 import { getReportByKey } from '../data/report-registry.ts';
@@ -143,6 +144,21 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
   const [adminRemovalReason, setAdminRemovalReason] = useState('');
   const [adminRemovalConfirmed, setAdminRemovalConfirmed] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [ssotTick, setSsotTick] = useState(0);
+
+  // Requirement 9: Active listener ensuring library immediately reflects latest authoritative server updates
+  useEffect(() => {
+    const unsubSubmissions = submissionService.onSubmissionsUpdated(() => {
+      setSsotTick((t) => t + 1);
+    });
+    const unsubRealtime = realtimeSsotEngine.subscribe(() => {
+      setSsotTick((t) => t + 1);
+    });
+    return () => {
+      unsubSubmissions();
+      unsubRealtime();
+    };
+  }, []);
 
   // Local query result derived directly from authoritative backend submissionService
   const queryResult: LibraryQueryResult = useMemo(() => {
@@ -172,6 +188,7 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
   }, [
     currentUser,
     submissions,
+    ssotTick,
     searchQuery,
     selectedLifecycleState,
     selectedReportType,
