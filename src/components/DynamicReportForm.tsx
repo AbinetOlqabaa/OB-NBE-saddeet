@@ -1055,11 +1055,10 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                 ? 'bg-amber-50 dark:bg-amber-950/80 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200 hover:bg-amber-100'
                 : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
             }`}
-            title="Open Unified Validation & Remediation Assistant (NBE BSD/03/2020)"
+            title="Open Help & Validation Guidance (NBE BSD/03/2020)"
           >
             <Wand2 className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-ob-indigo-600 dark:text-ob-indigo-400" />
-            <span className="hidden sm:inline">Remediation Assistant</span>
-            <span className="sm:hidden">Assistant</span>
+            <span>Help</span>
             {remediationSummary && (
               <span
                 className={`px-1.5 py-0.2 text-[10px] font-bold rounded-full font-mono ${
@@ -1363,7 +1362,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                 className="px-3 py-1 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
               >
                 <Wand2 className="w-3.5 h-3.5" />
-                <span>Open Remediation Assistant</span>
+                <span>Help</span>
               </button>
               <button
                 type="button"
