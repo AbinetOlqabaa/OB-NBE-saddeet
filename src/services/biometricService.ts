@@ -1552,6 +1552,54 @@ export class BiometricServiceClass {
   }
 
   /**
+   * Checks for existing fingerprint and face enrollment records in the user profile.
+   * Prevents unnecessary reset attempts if no prior biometric data exists.
+   */
+  public checkBiometricEnrollment(emailOrUserId: string): {
+    hasEnrolledBiometrics: boolean;
+    hasFaceId: boolean;
+    hasFingerprint: boolean;
+    enrolledCount: number;
+    methods: ('FACE' | 'FINGERPRINT')[];
+    user?: UserAccount;
+  } {
+    const norm = (emailOrUserId || '').toLowerCase().trim();
+    const user = userService.getByEmail(norm) || userService.getById(norm);
+    if (!user) {
+      return {
+        hasEnrolledBiometrics: false,
+        hasFaceId: false,
+        hasFingerprint: false,
+        enrolledCount: 0,
+        methods: [],
+      };
+    }
+
+    const userCreds = Array.from(this.credentials.values()).filter(
+      (c) => c.userId === user.id && (c.status === 'ENROLLED' || c.status === 'SUSPENDED')
+    );
+    const hasFaceId =
+      userCreds.some((c) => c.type === 'FACE') ||
+      Boolean(user.biometricCredentials?.some((c) => c.type === 'FACE'));
+    const hasFingerprint =
+      userCreds.some((c) => c.type === 'FINGERPRINT') ||
+      Boolean(user.biometricCredentials?.some((c) => c.type === 'FINGERPRINT'));
+
+    const methods: ('FACE' | 'FINGERPRINT')[] = [];
+    if (hasFaceId) methods.push('FACE');
+    if (hasFingerprint) methods.push('FINGERPRINT');
+
+    return {
+      hasEnrolledBiometrics: methods.length > 0,
+      hasFaceId,
+      hasFingerprint,
+      enrolledCount: methods.length,
+      methods,
+      user,
+    };
+  }
+
+  /**
    * Verifies the validity of email and password credentials for biometric reset,
    * and verifies whether Face ID or/and Fingerprint enrollment has been done previously.
    * Both credential validity and prior enrollment must be satisfied to proceed to reset.
@@ -1682,18 +1730,9 @@ export class BiometricServiceClass {
     // Password is valid - reset failure counter
     this.recordSuccess(norm);
 
-    // 5. Check if fingerprint or/and face enrollment has been done previously
-    const userCreds = Array.from(this.credentials.values()).filter(
-      (c) => c.userId === user.id && (c.status === 'ENROLLED' || c.status === 'SUSPENDED')
-    );
-    const hasFaceId =
-      userCreds.some((c) => c.type === 'FACE') ||
-      Boolean(user.biometricCredentials?.some((c) => c.type === 'FACE'));
-    const hasFingerprint =
-      userCreds.some((c) => c.type === 'FINGERPRINT') ||
-      Boolean(user.biometricCredentials?.some((c) => c.type === 'FINGERPRINT'));
-
-    const hasEnrolledBiometrics = hasFaceId || hasFingerprint;
+    // 5. Check if fingerprint or/and face enrollment has been done previously via checkBiometricEnrollment
+    const enrollment = this.checkBiometricEnrollment(user.id);
+    const { hasFaceId, hasFingerprint, hasEnrolledBiometrics } = enrollment;
 
     if (!hasEnrolledBiometrics) {
       return {

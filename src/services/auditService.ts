@@ -92,7 +92,10 @@ class AuditServiceClass {
   }
 
   public log(entry: Omit<AuditLogEntry, 'id' | 'timestamp'> & { isOffline?: boolean; syncStatus?: 'SYNCED' | 'PENDING_SYNC' }): AuditLogEntry {
-    const isOnline = typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true;
+    const isOnline =
+      typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+        ? navigator.onLine
+        : true;
     const syncStatus = entry.syncStatus || (isOnline ? 'SYNCED' : 'PENDING_SYNC');
     const isOfflineRecord = entry.isOffline !== undefined ? entry.isOffline : !isOnline;
 

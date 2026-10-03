@@ -205,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Report catalog & dynamic forms',
       badge: null,
       shortcut: `${modKey}+M`,
-      roles: ['ADMIN', 'MAKER'],
+      roles: ['MAKER'],
     },
     {
       id: 'LIBRARY' as ViewTab,
@@ -215,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Authoritative drafts, in-progress & submissions',
       badge: null,
       shortcut: `${modKey}+L`,
-      roles: ['ADMIN', 'MAKER', 'CHECKER', 'AUDITOR'],
+      roles: ['MAKER', 'CHECKER', 'AUDITOR'],
     },
     {
       id: 'CHECKER_INBOX' as ViewTab,
@@ -225,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Review & approval workflows',
       badge: pendingCheckerCount > 0 ? pendingCheckerCount : null,
       shortcut: `${modKey}+⇧+C`,
-      roles: ['ADMIN', 'CHECKER'],
+      roles: ['CHECKER'],
     },
     {
       id: 'AUDITOR_DASHBOARD' as ViewTab,
@@ -235,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Audit work queue, findings & evidence',
       badge: null,
       shortcut: `${modKey}+⇧+A`,
-      roles: ['ADMIN', 'AUDITOR'],
+      roles: ['AUDITOR'],
     },
     {
       id: 'NBE_SIMULATOR' as ViewTab,
@@ -245,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Intake console & test probe',
       badge: null,
       shortcut: `${modKey}+⇧+N`,
-      roles: ['ADMIN', 'CHECKER'],
+      roles: ['ADMIN'],
     },
     {
       id: 'PHASE2_SSOT' as ViewTab,
@@ -255,7 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Lakehouse & GL reconcile',
       badge: null,
       shortcut: `${modKey}+⇧+S`,
-      roles: ['ADMIN', 'MAKER', 'CHECKER', 'AUDITOR'],
+      roles: ['ADMIN'],
     },
     {
       id: 'AUDIT_TRAIL' as ViewTab,
@@ -275,7 +275,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Real-time sensors & enclave telemetry',
       badge: null,
       shortcut: `${modKey}+⇧+H`,
-      roles: ['ADMIN', 'MAKER', 'CHECKER', 'NBE_OFFICER', 'AUDITOR'],
+      roles: ['ADMIN'],
     },
     {
       id: 'DOCUMENTATION' as ViewTab,

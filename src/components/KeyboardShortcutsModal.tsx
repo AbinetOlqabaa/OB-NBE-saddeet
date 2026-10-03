@@ -87,31 +87,31 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
     // Navigation
     {
       keys: [modKey, 'M'],
-      description: 'Jump to Maker Workspace (Report Catalog & Drafts)',
+      description: 'Jump to Maker Workspace (MAKER role)',
       context: 'Navigation',
       icon: FileText,
     },
     {
       keys: [modKey, 'L'],
-      description: 'Jump to Maker Library (Authoritative Dossiers & Archives)',
+      description: 'Jump to Library & Dossiers',
       context: 'Navigation',
       icon: BookOpen,
     },
     {
       keys: [modKey, 'Shift', 'C'],
-      description: 'Jump to Checker Inbox (4-Eyes Reviews)',
+      description: 'Jump to Checker Inbox (CHECKER role)',
       context: 'Navigation',
       icon: Inbox,
     },
     {
       keys: [modKey, 'Shift', 'A'],
-      description: 'Jump to Admin Governance Dashboard',
+      description: 'Jump to Admin / Auditor Dashboard (Role-Locked)',
       context: 'Navigation',
       icon: Users,
     },
     {
       keys: [modKey, 'Shift', 'N'],
-      description: 'Jump to NBE API Gateway Simulator & Traffic Logs',
+      description: 'Jump to NBE API Gateway Simulator (ADMIN only)',
       context: 'Navigation',
       icon: Send,
     },

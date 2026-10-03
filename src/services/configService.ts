@@ -126,6 +126,7 @@ export interface ReportVersionSSOT {
     ReturnItemsList: any[];
     DynamicItemsList: any[];
   };
+  integrationConfig?: any;
 }
 
 export interface ReportDefinitionSSOT {
@@ -149,6 +150,7 @@ export interface ReportDefinitionSSOT {
   createdAt: string;
   updatedAt: string;
   activeVersionSnapshot?: ReportVersionSSOT;
+  integrationConfig?: any;
 }
 
 /**
@@ -205,6 +207,7 @@ export function versionToReportMetadata(
     SourceFilename: `${def.returnKey}_v${version.versionNumber}.json`,
     SourceHash: `sha256-v${version.versionNumber}-${Date.now()}`,
     isCustom: true,
+    integrationConfig: (version as any).integrationConfig || (def as any).integrationConfig || def.displayConfiguration?.integration,
   };
 }
 
@@ -1373,6 +1376,10 @@ class ConfigurationEngine {
     return list;
   }
 
+  public getReportDefinitions(filter?: { category?: string; frequency?: string; status?: string; departmentId?: string }): ReportDefinitionSSOT[] {
+    return this.getReports(filter);
+  }
+
   public getReportDefinition(returnKey: string): ReportDefinitionSSOT | null {
     const report = this.reports.get(returnKey);
     if (!report) return null;
@@ -1381,7 +1388,7 @@ class ConfigurationEngine {
     const activeVersion = this.getActiveVersion(returnKey);
     return {
       ...report,
-      activeVersionSnapshot: activeVersion || undefined,
+      activeVersionSnapshot: report.status === 'ACTIVE' && activeVersion ? activeVersion : undefined,
     };
   }
 
@@ -1398,7 +1405,7 @@ class ConfigurationEngine {
   public getActiveVersion(returnKey: string): ReportVersionSSOT | null {
     const list = this.versions.get(returnKey);
     if (!list || list.length === 0) return null;
-    return list.find((v) => v.status === 'ACTIVE') || list[list.length - 1];
+    return list.find((v) => v.status === 'ACTIVE') || null;
   }
 
   /**
@@ -1429,6 +1436,10 @@ class ConfigurationEngine {
     },
     actor: ActorInfo
   ): { report: ReportDefinitionSSOT; version: ReportVersionSSOT } {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can create report definitions. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const normKey = input.returnKey.trim().toUpperCase();
     if (this.reports.has(normKey)) {
       throw new Error(`Report definition with ReturnKey '${normKey}' already exists.`);
@@ -1615,6 +1626,10 @@ class ConfigurationEngine {
     },
     actor: ActorInfo
   ): ReportDefinitionSSOT {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can modify report definitions, titles, or template metadata. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const report = this.reports.get(returnKey);
     if (!report) throw new Error(`Report definition '${returnKey}' not found.`);
 
@@ -1720,6 +1735,10 @@ class ConfigurationEngine {
     },
     actor: ActorInfo
   ): ReportVersionSSOT {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can create draft versions. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const report = this.reports.get(returnKey);
     if (!report) throw new Error(`Report with ReturnKey '${returnKey}' not found.`);
 
@@ -1811,11 +1830,17 @@ class ConfigurationEngine {
     },
     actor: ActorInfo
   ): ReportVersionSSOT {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can modify draft versions. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const version = this.getReportVersion(returnKey, versionNumber);
     if (!version) throw new Error(`Version ${versionNumber} for report '${returnKey}' not found.`);
 
-    if (version.status === 'SUPERSEDED' || version.status === 'RETIRED') {
-      throw new Error(`Cannot modify version in '${version.status}' status (immutable historical record).`);
+    if (version.status === 'ACTIVE' || version.status === 'SUPERSEDED' || version.status === 'RETIRED') {
+      throw new Error(
+        `Cannot modify published version ${versionNumber} for report '${returnKey}'. Published versions are immutable after publication. Structural changes must create a new draft version.`
+      );
     }
 
     if (updates.changelogSummary !== undefined) version.changelogSummary = updates.changelogSummary;
@@ -2017,6 +2042,10 @@ class ConfigurationEngine {
     actor: ActorInfo,
     changelogSummary?: string
   ): ReportVersionSSOT {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can publish report versions. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const report = this.reports.get(returnKey);
     if (!report) throw new Error(`Report with ReturnKey '${returnKey}' not found.`);
 
@@ -2078,7 +2107,15 @@ class ConfigurationEngine {
   /**
    * Safely retires an obsolete report return template while preserving historical audit trails.
    */
+  public retireReportDefinition(returnKey: string, actor: ActorInfo, reason?: string): ReportDefinitionSSOT {
+    return this.retireReport(returnKey, actor, reason);
+  }
+
   public retireReport(returnKey: string, actor: ActorInfo, reason?: string): ReportDefinitionSSOT {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can retire report definitions. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const report = this.reports.get(returnKey);
     if (!report) throw new Error(`Report with ReturnKey '${returnKey}' not found.`);
 
@@ -2110,6 +2147,19 @@ class ConfigurationEngine {
 
     this.bumpVersion('REPORT');
     return report;
+  }
+
+  /**
+   * Removes a draft or test report definition from in-memory SSOT registry.
+   */
+  public deleteReport(returnKey: string): boolean {
+    const norm = returnKey.trim().toUpperCase();
+    this.versions.delete(norm);
+    const deleted = this.reports.delete(norm);
+    if (deleted) {
+      this.bumpVersion('REPORT');
+    }
+    return deleted;
   }
 
   /**
@@ -2337,12 +2387,17 @@ class ConfigurationEngine {
       changelogSummary: string;
       fields?: ReportFieldSSOT[];
       columns?: ReportColumnSSOT[];
+      sections?: ReportSectionSSOT[];
       formulas?: any[];
       validationRules?: any[];
       effectiveFrom?: string;
     },
     actor: ActorInfo
   ): ReportVersionSSOT {
+    if (!actor || actor.role !== 'ADMIN') {
+      throw new Error(`Forbidden: Only Compliance Administrators can create report versions. User role '${actor?.role || 'ANONYMOUS'}' is restricted to data entry.`);
+    }
+
     const report = this.reports.get(returnKey);
     if (!report) throw new Error(`Report with ReturnKey '${returnKey}' not found.`);
 
@@ -2357,6 +2412,7 @@ class ConfigurationEngine {
       currentActive.effectiveTo = now;
     }
 
+    const newSections = input.sections || (currentActive ? [...currentActive.sections] : []);
     const newFields = input.fields || (currentActive ? [...currentActive.fields] : []);
     const newColumns = input.columns || (currentActive ? [...currentActive.columns] : []);
     const newFormulas = input.formulas || (currentActive ? [...currentActive.formulas] : []);
@@ -2377,7 +2433,7 @@ class ConfigurationEngine {
       createdBy: actor.name,
       createdAt: now,
       publishedAt: now,
-      sections: currentActive?.sections || [],
+      sections: newSections,
       fields: newFields,
       columns: newColumns,
       rows: currentActive?.rows || [],

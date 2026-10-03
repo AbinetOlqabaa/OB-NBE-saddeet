@@ -82,33 +82,44 @@ export const isTabAuthorizedForRole = (tab: ViewTab, role?: string): boolean => 
     case 'DEPT_REPORT_MANAGEMENT':
       return role === 'ADMIN';
     case 'MAKER_WORKSPACE':
-      return role === 'ADMIN' || role === 'MAKER';
+      return role === 'MAKER';
     case 'LIBRARY':
-      return true;
+      return role === 'MAKER' || role === 'CHECKER' || role === 'AUDITOR';
     case 'CHECKER_INBOX':
-      return role === 'ADMIN' || role === 'CHECKER';
+      return role === 'CHECKER';
     case 'AUDITOR_DASHBOARD':
-      return role === 'ADMIN' || role === 'AUDITOR';
+      return role === 'AUDITOR';
     case 'NBE_SIMULATOR':
-      return role === 'ADMIN' || role === 'CHECKER';
+      return role === 'ADMIN';
     case 'PHASE2_SSOT':
-    case 'AUDIT_TRAIL':
     case 'SYSTEM_HEALTH':
+      return role === 'ADMIN';
+    case 'AUDIT_TRAIL':
+      return role === 'ADMIN' || role === 'CHECKER' || role === 'AUDITOR' || role === 'MAKER';
     case 'DOCUMENTATION':
       return true;
     default:
-      return true;
+      return false;
   }
 };
 export const isTabAuthorized = isTabAuthorizedForRole;
 
 export default function App() {
-  // First visitor starts on the Login Page
+  // Phase 29: Only restore persistent session if remember_me was explicitly requested, or transient tab session
   const [currentUser, setCurrentUser] = useState<UserSession | null>(() => {
     try {
-      const stored = localStorage.getItem('ob_logged_in_user');
-      if (stored) {
-        return JSON.parse(stored);
+      // 1. Check transient session (same browser tab)
+      const transient = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('ob_transient_user') : null;
+      if (transient) {
+        return JSON.parse(transient);
+      }
+      // 2. Check remembered session only if remember_me was active
+      const isRemembered = typeof localStorage !== 'undefined' && localStorage.getItem('ob_remember_me_active') === 'true';
+      if (isRemembered) {
+        const stored = localStorage.getItem('ob_logged_in_user');
+        if (stored) {
+          return JSON.parse(stored);
+        }
       }
     } catch {}
     return null;
@@ -118,11 +129,53 @@ export default function App() {
 
   const getInitialTabForRole = getDefaultTabForRole;
 
-  const [activeTab, setActiveTab] = useState<ViewTab>(() =>
-    currentUser ? getInitialTabForRole(currentUser.role) : 'MAKER_WORKSPACE'
-  );
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlTab = (params.get('tab') || window.location.hash.replace('#', '')) as ViewTab;
+      if (urlTab && currentUser && isTabAuthorizedForRole(urlTab, currentUser.role)) {
+        return urlTab;
+      }
+    }
+    return currentUser ? getInitialTabForRole(currentUser.role) : 'MAKER_WORKSPACE';
+  });
 
-  // Security: audit unauthorized view access attempts
+  // Security & Phase 35: Intercept direct URL, hash, and browser history popstate navigation
+  useEffect(() => {
+    const handleUrlAndHistoryNavigation = () => {
+      if (typeof window === 'undefined' || !currentUser) return;
+      const params = new URLSearchParams(window.location.search);
+      const urlTab = (params.get('tab') || window.location.hash.replace('#', '')) as ViewTab;
+      if (urlTab && urlTab !== activeTab) {
+        if (!isTabAuthorizedForRole(urlTab, currentUser.role)) {
+          // Cross-dashboard direct URL/history access strictly rejected and redirected
+          const correctTab = getInitialTabForRole(currentUser.role);
+          setActiveTab(correctTab);
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.set('tab', correctTab);
+          window.history.replaceState({ tab: correctTab }, '', newUrl.toString());
+          auditService.log({
+            actorId: currentUser.id,
+            actorName: currentUser.name,
+            actorRole: currentUser.role,
+            action: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+            entityType: 'SECURITY_RBAC',
+            entityId: urlTab,
+            correlationId: `corr_sec_url_${Date.now()}`,
+            details: `Direct URL/browser history access to unauthorized view ${urlTab} rejected for ${currentUser.role} under NBE BSD/03/2020 segregation rules.`,
+          });
+        } else {
+          setActiveTab(urlTab);
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handleUrlAndHistoryNavigation);
+    handleUrlAndHistoryNavigation();
+    return () => window.removeEventListener('popstate', handleUrlAndHistoryNavigation);
+  }, [currentUser, activeTab]);
+
+  // Security: audit unauthorized view access attempts & immediately redirect to role's authoritative dashboard!
   useEffect(() => {
     if (currentUser && !isTabAuthorizedForRole(activeTab, currentUser.role)) {
       auditService.log({
@@ -135,6 +188,8 @@ export default function App() {
         correlationId: `corr_sec_${Date.now()}`,
         details: `Access denied to protected view ${activeTab} for role ${currentUser.role} under NBE BSD/03/2020 segregation rules.`,
       });
+      const correctTab = getInitialTabForRole(currentUser.role);
+      setActiveTab(correctTab);
     }
   }, [activeTab, currentUser]);
 
@@ -168,23 +223,97 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Phase 29: End-to-End Server-Controlled Persistent Session Verification & Biometric Policy Re-evaluation (Req 4, 6, 8, 9, 10)
+  useEffect(() => {
+    let isMounted = true;
+    async function verifyServerPersistentSession() {
+      // If user is already active via transient session in this tab, keep active
+      try {
+        const transient = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('ob_transient_user') : null;
+        if (transient) {
+          const parsed = JSON.parse(transient);
+          if (parsed && isMounted && !currentUser) {
+            setCurrentUser(parsed);
+            return;
+          }
+        }
+      } catch {}
+
+      // Verify persistent session against real server backend
+      try {
+        const res = await fetch('/api/auth/session', {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.user && isMounted) {
+            // Check biometric policy (Req 10):
+            // Remember Me must not bypass explicit biometric policy when biometrics are enrolled/required
+            if (data.requiresBiometricVerification) {
+              // Biometric policy retains authority: keep user reference in session for 1-click biometric authorization
+              sessionStorage.setItem('ob_remembered_biometric_user', JSON.stringify(data.user));
+            } else {
+              setCurrentUser(data.user);
+              localStorage.setItem('ob_logged_in_user', JSON.stringify(data.user));
+              localStorage.setItem('ob_remember_me_active', 'true');
+            }
+          }
+        } else {
+          // Server returned 401 (Session expired, revoked, account disabled, or password changed)
+          // Silently clean up stale local reference so user is NOT restored by old session (Req 8, 9)
+          localStorage.removeItem('ob_logged_in_user');
+          localStorage.removeItem('ob_remember_me_active');
+          if (isMounted && typeof localStorage !== 'undefined' && localStorage.getItem('ob_remember_me_active') !== 'true') {
+            // If the user was only loaded from old localStorage without server session, clear them
+            const hasTransient = sessionStorage.getItem('ob_transient_user');
+            if (!hasTransient) {
+              setCurrentUser(null);
+            }
+          }
+        }
+      } catch {
+        // Fallback for offline / decoupled test runner:
+        // Ensure unchecked sessions do not persist across restarts
+        try {
+          const wasRemembered = localStorage.getItem('ob_remember_me_active') === 'true';
+          if (!wasRemembered && !sessionStorage.getItem('ob_transient_user')) {
+            localStorage.removeItem('ob_logged_in_user');
+            if (isMounted) setCurrentUser(null);
+          }
+        } catch {}
+      }
+    }
+
+    verifyServerPersistentSession();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Safe navigation helper that flushes pending draft changes before switching view
   const handleSafeTabChange = async (targetTab: ViewTab) => {
+    let resolvedTab = targetTab;
+    if (!isTabAuthorizedForRole(resolvedTab, currentUser?.role || 'MAKER')) {
+      showToast('Access restricted: System Health and SSOT Lakehouse are reserved for Administrator.');
+      resolvedTab = getInitialTabForRole(currentUser?.role || 'MAKER');
+    }
+
     if (editingSubmission && navigationGuardRef.current?.hasUnsavedChanges()) {
       try {
         const saved = await navigationGuardRef.current.flush();
         if (!saved) {
-          setPendingNavigationAction({ type: 'SWITCH_TAB', targetTab });
+          setPendingNavigationAction({ type: 'SWITCH_TAB', targetTab: resolvedTab });
           setLeaveSafetyModalOpen(true);
           return;
         }
       } catch (err: any) {
-        setPendingNavigationAction({ type: 'SWITCH_TAB', targetTab, errorMsg: err.message });
+        setPendingNavigationAction({ type: 'SWITCH_TAB', targetTab: resolvedTab, errorMsg: err.message });
         setLeaveSafetyModalOpen(true);
         return;
       }
     }
-    setActiveTab(targetTab);
+    setActiveTab(resolvedTab);
     setEditingSubmission(null);
   };
 
@@ -266,11 +395,11 @@ export default function App() {
       // 4. Ctrl+M or Cmd+M: Jump to Maker Workspace
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
-        if (currentUser.role === 'MAKER' || currentUser.role === 'ADMIN') {
+        if (currentUser.role === 'MAKER') {
           handleSafeTabChange('MAKER_WORKSPACE');
           showToast('Navigated to Maker Workspace (Ctrl+M)');
         } else {
-          showToast('Access restricted: Maker Workspace requires MAKER or ADMIN role.');
+          showToast(`Access restricted: Maker Workspace is locked to MAKER role (current: ${currentUser.role}).`);
         }
         return;
       }
@@ -278,32 +407,41 @@ export default function App() {
       // 4b. Ctrl+L or Cmd+L: Jump to Maker Library & Dossiers
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
-        handleSafeTabChange('LIBRARY');
-        showToast('Navigated to Maker Library & Dossiers (Ctrl+L)');
+        if (currentUser.role === 'MAKER' || currentUser.role === 'CHECKER' || currentUser.role === 'AUDITOR') {
+          handleSafeTabChange('LIBRARY');
+          showToast('Navigated to Library & Dossiers (Ctrl+L)');
+        }
         return;
       }
 
       // 5. Ctrl+Shift+C / Cmd+Shift+C: Jump to Checker Inbox
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
         e.preventDefault();
-        if (currentUser.role === 'CHECKER' || currentUser.role === 'ADMIN') {
+        if (currentUser.role === 'CHECKER') {
           handleSafeTabChange('CHECKER_INBOX');
           showToast('Navigated to Checker Inbox (Ctrl+Shift+C)');
+        } else {
+          showToast(`Access restricted: Checker Inbox is locked to CHECKER role (current: ${currentUser.role}).`);
         }
         return;
       }
 
-      // 6. Ctrl+Shift+A / Cmd+Shift+A: Jump to Admin Dashboard
+      // 6. Ctrl+Shift+A / Cmd+Shift+A: Jump to Role-Locked Dashboard (Admin or Auditor)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         if (currentUser.role === 'ADMIN') {
           handleSafeTabChange('ADMIN_DASHBOARD');
           showToast('Navigated to Admin Governance (Ctrl+Shift+A)');
+        } else if (currentUser.role === 'AUDITOR') {
+          handleSafeTabChange('AUDITOR_DASHBOARD');
+          showToast('Navigated to Auditor Workspace (Ctrl+Shift+A)');
+        } else {
+          showToast(`Access restricted: Admin/Auditor workspace locked (current: ${currentUser.role}).`);
         }
         return;
       }
 
-      // 6b. Ctrl+Shift+M / Cmd+Shift+M: Jump to Departments & Reports Management
+      // 6b. Ctrl+Shift+M / Cmd+Shift+M: Jump to Departments & Reports Management (Admin Only)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         if (currentUser.role === 'ADMIN') {
@@ -313,23 +451,27 @@ export default function App() {
         return;
       }
 
-      // 7. Ctrl+Shift+N / Cmd+Shift+N: Jump to NBE Simulator
+      // 7. Ctrl+Shift+N / Cmd+Shift+N: Jump to NBE Simulator (Admin Only)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
-        if (currentUser.role === 'CHECKER' || currentUser.role === 'ADMIN') {
+        if (currentUser.role === 'ADMIN') {
           handleSafeTabChange('NBE_SIMULATOR');
           showToast('Navigated to NBE API Gateway Simulator (Ctrl+Shift+N)');
         } else {
-          showToast('Access restricted: NBE Simulator requires CHECKER or ADMIN role.');
+          showToast(`Access restricted: NBE Simulator is strictly reserved for Administrators (current: ${currentUser.role}).`);
         }
         return;
       }
 
-      // 8. Ctrl+Shift+S / Cmd+Shift+S: Jump to Phase 2 SSOT
+      // 8. Ctrl+Shift+S / Cmd+Shift+S: Jump to Phase 2 SSOT (Admin Only)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        handleSafeTabChange('PHASE2_SSOT');
-        showToast('Navigated to Phase 2 SSOT Medallion Lakehouse (Ctrl+Shift+S)');
+        if (currentUser.role === 'ADMIN') {
+          handleSafeTabChange('PHASE2_SSOT');
+          showToast('Navigated to Phase 2 SSOT Medallion Lakehouse (Ctrl+Shift+S)');
+        } else {
+          showToast('Access restricted: SSOT Lakehouse is reserved for Administrator.');
+        }
         return;
       }
 
@@ -349,11 +491,15 @@ export default function App() {
         return;
       }
 
-      // 11. Ctrl+Shift+H / Cmd+Shift+H: Jump to System Health
+      // 11. Ctrl+Shift+H / Cmd+Shift+H: Jump to System Health (Admin Only)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
         e.preventDefault();
-        handleSafeTabChange('SYSTEM_HEALTH');
-        showToast('Navigated to System Health Telemetry Dashboard (Ctrl+Shift+H)');
+        if (currentUser.role === 'ADMIN') {
+          handleSafeTabChange('SYSTEM_HEALTH');
+          showToast('Navigated to System Health Telemetry Dashboard (Ctrl+Shift+H)');
+        } else {
+          showToast('Access restricted: System Health telemetry is reserved for Administrator.');
+        }
         return;
       }
     };
@@ -445,14 +591,23 @@ export default function App() {
   };
 
   // Login handler with subtle haptic feedback & device hardware verification toast alert
-  const handleLoginSuccess = async (user: UserSession, redirectTab?: string) => {
+  const handleLoginSuccess = async (user: UserSession, redirectTab?: string, rememberMe?: boolean) => {
     // 1. Trigger subtle tactile haptic feedback confirming login & verified hardware
     triggerHardwareVerificationHaptic();
 
-    // 2. Set current authenticated user & persist
+    // 2. Set current authenticated user & persist according to Remember Me policy (Req 4, 5, 11)
     setCurrentUser(user);
     try {
-      localStorage.setItem('ob_logged_in_user', JSON.stringify(user));
+      if (rememberMe) {
+        localStorage.setItem('ob_logged_in_user', JSON.stringify(user));
+        localStorage.setItem('ob_remember_me_active', 'true');
+        sessionStorage.removeItem('ob_transient_user');
+      } else {
+        // If Remember Me is unchecked, store only in transient tab session (Req 11)
+        localStorage.removeItem('ob_logged_in_user');
+        localStorage.removeItem('ob_remember_me_active');
+        sessionStorage.setItem('ob_transient_user', JSON.stringify(user));
+      }
     } catch {}
 
     const targetTab = (redirectTab as ViewTab) || getInitialTabForRole(user.role);
@@ -503,16 +658,33 @@ export default function App() {
     executeLogout();
   };
 
-  const executeLogout = () => {
+  const executeLogout = async () => {
     setCurrentUser(null);
     setEditingSubmission(null);
     setLogoutModalOpen(false);
     setIsLoggingOut(false);
+    setLogoutFlushError(null);
     try {
       localStorage.removeItem('ob_logged_in_user');
+      localStorage.removeItem('ob_remember_me_active');
+      sessionStorage.removeItem('ob_transient_user');
+      sessionStorage.removeItem('ob_remembered_biometric_user');
+      // Invalidate & clear sensitive transient biometric state per existing auth architecture
+      sessionStorage.removeItem('ob_internal_hw_diagnostic');
+      sessionStorage.removeItem('ob_biometric_challenge');
+      sessionStorage.removeItem('ob_face_auth_temp');
+      sessionStorage.removeItem('ob_active_session_token');
+      sessionStorage.removeItem('ob_auth_history_cache');
+
+      // Phase 29: Explicit Logout invalidates the remembered session on the server (Req 8)
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(() => {});
     } catch {}
     setAuthView('LOGIN');
-    showToast('Logged out of Oromia Bank Regulatory Portal.');
+    showToast('Logged out of Oromia Bank Regulatory Portal. Persistent session invalidated.');
   };
 
   // Fast Login as Administrator for testing pending approval workflows
@@ -600,21 +772,24 @@ export default function App() {
     }
   };
 
-  // Submit to Checker for approval
-  const handleSubmitToChecker = (subId: string, comment?: string) => {
+  // Submit to Checker for approval (Phase 36: supports selectedCheckerIds)
+  const handleSubmitToChecker = (subId: string, comment?: string, selectedCheckerIds?: string[]) => {
     if (!currentUser) return;
     try {
       vibrate([25, 40, 35]);
       const updated = submissionService.submitToChecker(
         subId,
         currentUser,
-        comment || 'Prepared and submitted for Checker review.'
+        comment || 'Prepared and submitted for Checker review.',
+        undefined,
+        selectedCheckerIds
       );
       setSubmissions(submissionService.getAll());
       if (editingSubmission?.id === subId) {
         setEditingSubmission(updated);
       }
-      showToast(`Return ${updated.reportKey} submitted to Checker queue for 4-eyes sign-off.`);
+      const count = updated.assignedCheckerIds?.length || 1;
+      showToast(`Return ${updated.reportKey} submitted to ${count} assigned Checker(s) [${updated.checkerName || 'Checker'}] for 4-eyes sign-off.`);
     } catch (err: any) {
       alert(`Submission error: ${err.message}`);
     }
@@ -802,8 +977,8 @@ export default function App() {
               }
               onBack={handleCloseEditingSubmission}
               onSave={handleSaveDraft}
-              onSubmitToChecker={(comment, expectedVer) => {
-                handleSubmitToChecker(editingSubmission.id, comment);
+              onSubmitToChecker={(comment, expectedVer, selectedCheckerIds) => {
+                handleSubmitToChecker(editingSubmission.id, comment, selectedCheckerIds);
               }}
               onReuseSubmission={handleReuseSubmission}
               onRegisterNavigationGuard={(guard) => {
@@ -911,18 +1086,19 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'NBE_SIMULATOR' && <NbeSimulatorView />}
+              {activeTab === 'NBE_SIMULATOR' && currentUser?.role === 'ADMIN' && <NbeSimulatorView />}
 
-              {activeTab === 'PHASE2_SSOT' && (
+              {activeTab === 'PHASE2_SSOT' && currentUser?.role === 'ADMIN' && (
                 <Phase2SSOTView
                   templates={templates}
+                  currentUser={currentUser}
                   onOpenGeneratedSubmission={handleOpenGeneratedSubmission}
                 />
               )}
 
               {activeTab === 'AUDIT_TRAIL' && <AuditTrailView />}
 
-              {activeTab === 'SYSTEM_HEALTH' && (
+              {activeTab === 'SYSTEM_HEALTH' && currentUser?.role === 'ADMIN' && (
                 <SystemHealthDashboard currentUser={currentUser} />
               )}
 

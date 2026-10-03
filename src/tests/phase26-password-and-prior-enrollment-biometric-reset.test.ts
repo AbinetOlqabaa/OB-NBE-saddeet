@@ -73,6 +73,13 @@ export async function runPhase26PasswordAndPriorEnrollmentBiometricResetTests() 
   assert(typeof wrongPwRes.remainingAttempts === 'number', 'Reports remaining trials before service denial');
 
   console.log('\n--- 3. Prior Biometric Enrollment Gate: Neither Enrolled ---');
+  // 3A: Direct service method test: checkBiometricEnrollment
+  const directCheckNoBio = biometricService.checkBiometricEnrollment(testUserEmail);
+  assert(directCheckNoBio.hasEnrolledBiometrics === false, 'biometricService.checkBiometricEnrollment returns false when not enrolled');
+  assert(directCheckNoBio.hasFaceId === false, 'checkBiometricEnrollment: hasFaceId is false');
+  assert(directCheckNoBio.hasFingerprint === false, 'checkBiometricEnrollment: hasFingerprint is false');
+  assert(directCheckNoBio.enrolledCount === 0, 'checkBiometricEnrollment: enrolledCount is 0');
+
   // At this stage, Tirunesh has valid credentials (email & password match), but has NO enrolled biometrics.
   // The system MUST check if fingerprint or/and face enrollment has been done previously,
   // and block proceeding to any biometric resetting process!
@@ -100,6 +107,13 @@ export async function runPhase26PasswordAndPriorEnrollmentBiometricResetTests() 
     'face_optical_140_135_130_lum_135_dim_640x480'
   );
   assert(faceEnrollRes.success, 'Face ID enrolled successfully for officer');
+
+  // Verify direct service method checkBiometricEnrollment
+  const directCheckFace = biometricService.checkBiometricEnrollment(testUserEmail);
+  assert(directCheckFace.hasEnrolledBiometrics === true, 'biometricService.checkBiometricEnrollment returns true for Face ID');
+  assert(directCheckFace.hasFaceId === true, 'checkBiometricEnrollment: hasFaceId is true');
+  assert(directCheckFace.hasFingerprint === false, 'checkBiometricEnrollment: hasFingerprint is false');
+  assert(directCheckFace.methods.includes('FACE'), 'checkBiometricEnrollment: methods includes FACE');
 
   // Verify credentials and prior enrollment now:
   const faceVerifiedRes = biometricService.verifyResetCredentialsAndEnrollment(testUserEmail, correctPassword);

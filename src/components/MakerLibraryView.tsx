@@ -61,6 +61,7 @@ import { effectiveAccessEngine } from '../services/effectiveAccessEngine.ts';
 import { getReportByKey } from '../data/report-registry.ts';
 import { userService } from '../services/userService.ts';
 import { triggerHaptic, vibrate } from '../utils/haptics.ts';
+import { CheckerSelector } from './CheckerSelector.tsx';
 
 interface MakerLibraryViewProps {
   currentUser: UserSession;
@@ -68,7 +69,7 @@ interface MakerLibraryViewProps {
   submissions: ReportSubmission[];
   onSelectSubmission: (submission: ReportSubmission) => void;
   onCreateDraft?: (reportKey: string) => void;
-  onSubmitToChecker: (submissionId: string, comment?: string) => void;
+  onSubmitToChecker: (submissionId: string, comment?: string, selectedCheckerIds?: string[]) => void;
   onDeleteSubmission: (submissionId: string) => void;
   onReuseSubmission: (submissionId: string) => void;
   onRefresh?: () => void;
@@ -107,8 +108,24 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [submitTargetSub, setSubmitTargetSub] = useState<ReportSubmission | null>(null);
+  const [selectedCheckerIds, setSelectedCheckerIds] = useState<string[]>([]);
   const [submitComment, setSubmitComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (submitTargetSub) {
+      const eligible = effectiveAccessEngine.getEligibleCheckersForReport(
+        submitTargetSub.reportKey,
+        currentUser,
+        submitTargetSub
+      );
+      if (eligible.length > 0) {
+        setSelectedCheckerIds([eligible[0].id]);
+      } else {
+        setSelectedCheckerIds([]);
+      }
+    }
+  }, [submitTargetSub, currentUser]);
 
   const [validateTargetSub, setValidateTargetSub] = useState<ReportSubmission | null>(null);
   const [validationResult, setValidationResult] = useState<any | null>(null);
@@ -245,7 +262,7 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
     setIsSubmitting(true);
     try {
       vibrate([30, 45]);
-      onSubmitToChecker(submitTargetSub.id, submitComment);
+      onSubmitToChecker(submitTargetSub.id, submitComment, selectedCheckerIds);
       setSubmitTargetSub(null);
       setSubmitComment('');
     } catch (err: any) {
@@ -1440,7 +1457,7 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
         >
-          <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-2xl space-y-4">
+          <div className="max-w-lg w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-800">
                 <Send className="w-5 h-5" />
@@ -1454,6 +1471,15 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* Phase 36: Server-side Checker selector */}
+            <CheckerSelector
+              reportKey={submitTargetSub.reportKey}
+              currentUser={currentUser}
+              selectedCheckerIds={selectedCheckerIds}
+              onChangeSelectedCheckers={setSelectedCheckerIds}
+              submission={submitTargetSub}
+            />
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">

@@ -35,6 +35,8 @@ import {
   Table as TableIcon,
   Calculator,
   Binary,
+  Upload,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   configService,
@@ -47,10 +49,13 @@ import {
   FieldDataType,
   ReportFrequency,
 } from '../services/configService.ts';
+import { configurationGovernanceService } from '../services/configurationGovernanceService.ts';
 import { DepartmentDefinition } from '../data/organizationHierarchy.ts';
 import { departmentService } from '../services/departmentService.ts';
 import { UserSession, ReportMetadata } from '../types/regulatory.ts';
 import { vibrate } from '../utils/haptics.ts';
+import { NbeReportPackageImportModal } from './NbeReportPackageImportModal.tsx';
+import { nbeEndpointRegistry, MANAGED_AUTH_PROFILES } from '../services/nbeEndpointRegistry.ts';
 
 interface ReportTemplateStudioModalProps {
   isOpen: boolean;
@@ -85,6 +90,7 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
   const [versions, setVersions] = useState<ReportVersionSSOT[]>([]);
   const [selectedVersionNumber, setSelectedVersionNumber] = useState<number>(1);
   const [workingVersion, setWorkingVersion] = useState<ReportVersionSSOT | null>(null);
+  const [isNbeImportOpen, setIsNbeImportOpen] = useState(false);
 
   // Form State for Metadata
   const [metaForm, setMetaForm] = useState<{
@@ -99,6 +105,12 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
     instCode: string;
     finYear: number;
     nbeReturnKey: string;
+    endpointUrl: string;
+    environmentTarget: string;
+    httpMethod: string;
+    timeoutMs: number;
+    authProfileRef: string;
+    idempotencyStrategy: string;
   }>({
     returnKey: '',
     code: '',
@@ -111,6 +123,12 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
     instCode: '0000013',
     finYear: 2026,
     nbeReturnKey: '',
+    endpointUrl: '/api/v1/nbe-simulator/submit',
+    environmentTarget: 'LOCAL/SIMULATOR',
+    httpMethod: 'POST',
+    timeoutMs: 30000,
+    authProfileRef: 'auth_local_simulator',
+    idempotencyStrategy: 'HEADER_UUID',
   });
 
   // Working Version In-Memory Schema
@@ -169,6 +187,7 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
           setChangelogSummary(targetVer.changelogSummary || '');
         }
 
+        const integ = nbeEndpointRegistry.getEndpointForReport(rep.returnKey, targetVer?.versionNumber);
         setMetaForm({
           returnKey: rep.returnKey,
           code: rep.code,
@@ -181,6 +200,12 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
           instCode: rep.instCode || '0000013',
           finYear: rep.finYear || 2026,
           nbeReturnKey: rep.nbeMapping?.returnKey || rep.returnKey,
+          endpointUrl: integ.endpointUrl || '/api/v1/nbe-simulator/submit',
+          environmentTarget: integ.environmentTarget || 'LOCAL/SIMULATOR',
+          httpMethod: integ.httpMethod || 'POST',
+          timeoutMs: integ.timeoutMs || 30000,
+          authProfileRef: integ.authProfileRef || 'auth_local_simulator',
+          idempotencyStrategy: integ.idempotencyStrategy || 'HEADER_UUID',
         });
       }
     } else {
@@ -202,6 +227,12 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
         instCode: '0000013',
         finYear: 2026,
         nbeReturnKey: defaultKey,
+        endpointUrl: '/api/v1/nbe-simulator/submit',
+        environmentTarget: 'LOCAL/SIMULATOR',
+        httpMethod: 'POST',
+        timeoutMs: 30000,
+        authProfileRef: 'auth_local_simulator',
+        idempotencyStrategy: 'HEADER_UUID',
       });
 
       const initialFields: ReportFieldSSOT[] = [
@@ -675,6 +706,23 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
         );
         setReport(created.report);
         setWorkingVersion(created.version);
+
+        // Register / update endpoint in registry (Phase 32)
+        try {
+          nbeEndpointRegistry.updateReportEndpoint(
+            created.report.returnKey,
+            {
+              endpointUrl: metaForm.endpointUrl,
+              environmentTarget: (metaForm.environmentTarget as any) || 'LOCAL/SIMULATOR',
+              httpMethod: (metaForm.httpMethod as any) || 'POST',
+              timeoutMs: Number(metaForm.timeoutMs) || 30000,
+              authProfileRef: metaForm.authProfileRef,
+              idempotencyStrategy: (metaForm.idempotencyStrategy as any) || 'HEADER_UUID',
+            },
+            actor
+          );
+        } catch {}
+
         onSuccess(`Draft report definition '${created.report.name}' saved.`);
       } else {
         // Update metadata & update/create draft version
@@ -691,6 +739,22 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
           },
           actor
         );
+
+        // Register / update endpoint in registry (Phase 32)
+        try {
+          nbeEndpointRegistry.updateReportEndpoint(
+            report.returnKey,
+            {
+              endpointUrl: metaForm.endpointUrl,
+              environmentTarget: (metaForm.environmentTarget as any) || 'LOCAL/SIMULATOR',
+              httpMethod: (metaForm.httpMethod as any) || 'POST',
+              timeoutMs: Number(metaForm.timeoutMs) || 30000,
+              authProfileRef: metaForm.authProfileRef,
+              idempotencyStrategy: (metaForm.idempotencyStrategy as any) || 'HEADER_UUID',
+            },
+            actor
+          );
+        } catch {}
 
         let draftVer = versions.find((v) => v.status === 'DRAFT' || v.status === 'VALIDATED' || v.status === 'PREVIEW');
         if (!draftVer) {
@@ -837,6 +901,71 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
     }
   };
 
+  const [isProposingGovernance, setIsProposingGovernance] = useState(false);
+
+  const handleProposeGovernedChange = () => {
+    const valid = handleRunValidation();
+    if (!valid) {
+      alert('Cannot propose changes: Please resolve structural validation errors first.');
+      setActiveTab('VALIDATION');
+      return;
+    }
+
+    if (!changelogSummary.trim()) {
+      alert('A changelog/business justification summary is mandatory for governed template changes.');
+      setActiveTab('PUBLISH');
+      return;
+    }
+
+    setIsProposingGovernance(true);
+    try {
+      const proposer = {
+        id: currentUser.id,
+        name: currentUser.name,
+        role: currentUser.role,
+        department: currentUser.department,
+      };
+
+      const proposal = configurationGovernanceService.proposeReportDefinitionChange(
+        report?.returnKey || metaForm.returnKey,
+        {
+          title: metaForm.name,
+          name: metaForm.name,
+          code: metaForm.code,
+          description: metaForm.description,
+          category: metaForm.category,
+          frequency: metaForm.frequency,
+          defaultDepartmentId: metaForm.defaultDepartmentId,
+          departmentIds: metaForm.selectedDepartmentIds,
+          sections,
+          fields,
+          columns,
+          formulas,
+          endpointConfig: {
+            endpointUrl: metaForm.endpointUrl,
+            environmentTarget: (metaForm.environmentTarget as any) || 'LOCAL/SIMULATOR',
+            httpMethod: (metaForm.httpMethod as any) || 'POST',
+            timeoutMs: Number(metaForm.timeoutMs) || 30000,
+            authProfileRef: metaForm.authProfileRef,
+            idempotencyStrategy: (metaForm.idempotencyStrategy as any) || 'HEADER_UUID',
+          },
+          reason: changelogSummary,
+        },
+        proposer
+      );
+
+      onSuccess(
+        `Governed change proposal '${proposal.title}' created (ID: ${proposal.id}, Risk: ${proposal.riskLevel}). Dual approval ${proposal.impactAnalysis.requiresDualApproval ? 'is strictly required' : 'is optional'}.`
+      );
+      vibrate([20, 20, 20]);
+      onClose();
+    } catch (err: any) {
+      alert(`Governance Proposal Failed: ${err.message}`);
+    } finally {
+      setIsProposingGovernance(false);
+    }
+  };
+
   const handleRetireReport = () => {
     if (!report) return;
     if (!confirm(`Are you sure you want to decommission and retire '${report.name}'? This will mark the return as RETIRED while preserving all historical submissions.`)) {
@@ -877,6 +1006,15 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsNbeImportOpen(true)}
+              className="min-h-[38px] px-3.5 py-1.5 bg-ob-indigo-50 hover:bg-ob-indigo-100 dark:bg-ob-indigo-950 dark:hover:bg-ob-indigo-900 border border-ob-indigo-200 dark:border-ob-indigo-800 text-ob-indigo-700 dark:text-ob-indigo-300 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-press"
+              title="Import an NBE-provided JSON report definition package"
+            >
+              <Upload className="w-4 h-4 text-ob-indigo-600 dark:text-ob-indigo-400" />
+              <span>Import NBE JSON</span>
+            </button>
             <button
               type="button"
               onClick={handleSaveDraft}
@@ -1192,6 +1330,106 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
                       className="w-full p-2 font-mono text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Governed NBE API Integration Endpoint (Phase 32) */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <span>Governed NBE API Integration Endpoint</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Configured route for automated statutory transmission and central bank simulator verification.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-ob-indigo-50 dark:bg-ob-indigo-950/60 text-ob-indigo-700 dark:text-ob-indigo-300 font-bold rounded-md">
+                    Phase 32 Gateway Registry
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      Environment Target *
+                    </label>
+                    <select
+                      value={metaForm.environmentTarget}
+                      onChange={(e) => setMetaForm({ ...metaForm, environmentTarget: e.target.value as any })}
+                      className="w-full p-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                    >
+                      <option value="LOCAL/SIMULATOR">LOCAL/SIMULATOR (Internal)</option>
+                      <option value="TEST/NBE TEST">TEST/NBE TEST (NBE Testbed)</option>
+                      <option value="PRODUCTION/NBE">PRODUCTION/NBE (Live Regulatory)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      HTTP Method *
+                    </label>
+                    <select
+                      value={metaForm.httpMethod}
+                      onChange={(e) => setMetaForm({ ...metaForm, httpMethod: e.target.value as any })}
+                      className="w-full p-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                    >
+                      <option value="POST">POST (Standard Transmission)</option>
+                      <option value="PUT">PUT (Idempotent Revision)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      Timeout (ms)
+                    </label>
+                    <input
+                      type="number"
+                      min="1000"
+                      max="120000"
+                      step="1000"
+                      value={metaForm.timeoutMs}
+                      onChange={(e) => setMetaForm({ ...metaForm, timeoutMs: parseInt(e.target.value, 10) || 30000 })}
+                      className="w-full p-2 font-mono text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      Endpoint URL or Simulator Route *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. /api/v1/nbe-simulator/submit or https://nbe.gov.et/api/v1/submit"
+                      value={metaForm.endpointUrl}
+                      onChange={(e) => setMetaForm({ ...metaForm, endpointUrl: e.target.value })}
+                      className="w-full p-2 font-mono text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      Managed Authentication Profile *
+                    </label>
+                    <select
+                      value={metaForm.authProfileRef}
+                      onChange={(e) => setMetaForm({ ...metaForm, authProfileRef: e.target.value })}
+                      className="w-full p-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                    >
+                      {MANAGED_AUTH_PROFILES.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.environment})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Security Guardrail:</span>
+                  <span>Zero secret keys, passwords, or client certificates are exposed in templates. Only managed HSM/Vault authentication profiles are referenced.</span>
                 </div>
               </div>
 
@@ -1779,15 +2017,29 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled={isPublishing}
-                onClick={handlePublishVersion}
-                className="w-full min-h-[44px] px-4 py-2.5 bg-ob-green-600 hover:bg-ob-green-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer touch-press"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>{isPublishing ? 'Publishing Version...' : 'Confirm & Publish Statutory Version'}</span>
-              </button>
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isProposingGovernance || isPublishing}
+                  onClick={handleProposeGovernedChange}
+                  className="w-full min-h-[44px] px-4 py-2.5 bg-ob-indigo-600 hover:bg-ob-indigo-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer touch-press"
+                  title="Submit structural/metadata changes for automated impact analysis and formal 4-eyes dual control approval"
+                >
+                  <ShieldCheck className="w-4 h-4 text-ob-indigo-200" />
+                  <span>{isProposingGovernance ? 'Submitting Proposal…' : 'Submit for Governed 4-Eyes Review (Recommended)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isPublishing || isProposingGovernance}
+                  onClick={handlePublishVersion}
+                  className="w-full min-h-[40px] px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer touch-press"
+                  title="Direct administrative publication bypassing 4-eyes review (audit logged)"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-ob-green-500" />
+                  <span>{isPublishing ? 'Publishing Version…' : 'Direct Publish Statutory Version (Instant)'}</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -2239,6 +2491,56 @@ export const ReportTemplateStudioModal: React.FC<ReportTemplateStudioModalProps>
               </div>
             </div>
           </div>
+        )}
+
+        {/* NBE PACKAGE IMPORT MODAL (Phase 31) */}
+        {isNbeImportOpen && (
+          <NbeReportPackageImportModal
+            isOpen={isNbeImportOpen}
+            onClose={() => setIsNbeImportOpen(false)}
+            currentUser={currentUser}
+            onImportSuccess={(newKey, msg) => {
+              setIsNbeImportOpen(false);
+              onSuccess(msg);
+            }}
+            onOpenStudio={(newKey) => {
+              setIsNbeImportOpen(false);
+              const importedDef = configService.getReportDefinition(newKey);
+              if (importedDef) {
+                setReport(importedDef);
+                const vers = configService.getReportVersions(newKey);
+                setVersions(vers);
+                const activeOrLatest = vers[0] || null;
+                setWorkingVersion(activeOrLatest);
+                if (activeOrLatest) {
+                  setFields(activeOrLatest.fields || []);
+                  setColumns(activeOrLatest.columns || []);
+                  setSections(activeOrLatest.sections || []);
+                  setFormulas(activeOrLatest.formulas || []);
+                }
+                const integ = nbeEndpointRegistry.getEndpointForReport(importedDef.returnKey);
+                setMetaForm({
+                  returnKey: importedDef.returnKey,
+                  code: importedDef.code,
+                  name: importedDef.name,
+                  description: importedDef.description,
+                  category: importedDef.category,
+                  frequency: importedDef.frequency,
+                  defaultDepartmentId: importedDef.defaultDepartmentId,
+                  selectedDepartmentIds: importedDef.departmentIds || [importedDef.defaultDepartmentId],
+                  instCode: importedDef.instCode,
+                  finYear: importedDef.finYear,
+                  nbeReturnKey: importedDef.returnKey,
+                  endpointUrl: integ.endpointUrl,
+                  environmentTarget: integ.environmentTarget,
+                  httpMethod: integ.httpMethod,
+                  timeoutMs: integ.timeoutMs,
+                  authProfileRef: integ.authProfileRef,
+                  idempotencyStrategy: integ.idempotencyStrategy,
+                });
+              }
+            }}
+          />
         )}
       </div>
     </div>

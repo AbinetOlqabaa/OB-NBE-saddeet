@@ -216,12 +216,17 @@ export const SmartBiometricResetModal: React.FC<SmartBiometricResetModalProps> =
         setUserRole(user.role);
       }
 
-      setHasFaceId(Boolean(result.hasFaceId));
-      setHasFingerprint(Boolean(result.hasFingerprint));
+      // Check if fingerprint or/and face enrollment has been done previously using checkBiometricEnrollment
+      const enrollmentCheck = biometricService.checkBiometricEnrollment(norm);
+      const hasFace = Boolean(result.hasFaceId || enrollmentCheck.hasFaceId);
+      const hasFp = Boolean(result.hasFingerprint || enrollmentCheck.hasFingerprint);
+      const hasEnrolled = Boolean(result.hasEnrolledBiometrics || enrollmentCheck.hasEnrolledBiometrics);
 
-      // Check if fingerprint or/and face enrollment has been done previously
-      if (!result.hasEnrolledBiometrics) {
-        // Block proceeding to any biometric resetting process!
+      setHasFaceId(hasFace);
+      setHasFingerprint(hasFp);
+
+      // Block proceeding to any biometric resetting process if no prior biometric data exists
+      if (!hasEnrolled) {
         setNoBiometricsNotice(
           `No enrolled biometrics found: ${user?.name || norm} does not have any active Face ID or Fingerprint passkeys enrolled previously. Biometric reset cannot proceed without pre-existing biometric enrollments.`
         );
