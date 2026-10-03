@@ -112,10 +112,14 @@ export async function runPhase35RoleLockedDashboardsAndNotificationTests(): Prom
   assert.strictEqual(isTabAuthorizedForRole('NBE_SIMULATOR', 'AUDITOR'), false, 'NBE Simulator is forbidden for AUDITOR (Req 3)');
   assert.strictEqual(isTabAuthorizedForRole('NBE_SIMULATOR', 'ADMIN'), true, 'NBE Simulator is available for ADMIN only (Req 3)');
 
-  // Navbar NbeHealthIndicator simulator link must be ADMIN only
+  // Navbar NbeHealthIndicator and OfflineStatusIndicator removed from top navbar across all dashboards
   assert(
-    navbarSource.includes("onOpenSimulator={currentUser.role === 'ADMIN' ? onNavigateToSimulator : undefined}"),
-    'Navbar passes simulator console trigger strictly to ADMIN role (Req 3)'
+    !navbarSource.includes('<NbeHealthIndicator'),
+    'Navbar eliminates speed/latency indicator from top navbar'
+  );
+  assert(
+    !navbarSource.includes('<OfflineStatusIndicator'),
+    'Navbar eliminates network indicator from top navbar'
   );
 
   // App.tsx tab renderer check

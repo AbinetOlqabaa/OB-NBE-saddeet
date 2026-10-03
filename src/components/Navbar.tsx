@@ -17,8 +17,6 @@ import {
   ClipboardCheck,
   Bell,
 } from 'lucide-react';
-import { NbeHealthIndicator } from './NbeHealthIndicator.tsx';
-import { OfflineStatusIndicator } from './OfflineStatusIndicator.tsx';
 import { ThemeToggle } from './ThemeToggle.tsx';
 import { NotificationCenter } from './NotificationCenter.tsx';
 import { notificationService, AppNotification } from '../services/notificationService.ts';
@@ -126,22 +124,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="h-6 w-6 object-contain sm:hidden"
             />
           </div>
-
-          <div className="hidden lg:block h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
-
-          <div className="hidden sm:flex flex-col min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs sm:text-sm font-bold tracking-tight text-ob-indigo-900 dark:text-white leading-tight truncate">
-                Regulatory Platform
-              </span>
-              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-ob-green-50 dark:bg-ob-green-950/60 text-ob-green-800 dark:text-ob-green-300 border border-ob-green-300 dark:border-ob-green-800 shrink-0">
-                0000013
-              </span>
-            </div>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
-              National Bank of Ethiopia · BSD/03/2020
-            </span>
-          </div>
         </div>
       </div>
 
@@ -165,16 +147,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
 
-      {/* Zone 3: Health + Offline + Theme + Notifications + Authoritative User Badge + Logout */}
+      {/* Zone 3: Theme + Notifications + Authoritative User Badge + Logout */}
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        {/* NBE Remote Regulatory Site Visit & IndexedDB Offline Indicator */}
-        <OfflineStatusIndicator />
-
-        {/* Dedicated NBE API Gateway Health Indicator (Simulator console strictly ADMIN-only) */}
-        <NbeHealthIndicator
-          onOpenSimulator={currentUser.role === 'ADMIN' ? onNavigateToSimulator : undefined}
-        />
-
         {/* Notification Bell Button (Replaces cross-dashboard switching control) */}
         <button
           type="button"
