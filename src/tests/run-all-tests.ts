@@ -385,7 +385,11 @@ import { runPhase34AdminTemplateGovernanceAndMakerTitleImmutabilityTests } from 
 import { runPhase35RoleLockedDashboardsAndNotificationTests } from './phase35-role-locked-dashboards-and-notification-navigation.test.ts';
 import { runPhase36MakerSelectedCheckerAssignmentTests } from './phase36-maker-selected-checker-assignment-and-notification-workflow.test.ts';
 import { runPhase37CrossPhaseIntegrationSecurityRegressionAndAcceptanceTests } from './phase37-cross-phase-integration-security-regression-and-acceptance.test.ts';
+import { runReportingPerformanceAnalyticsTests } from './reporting-performance-analytics.test.ts';
 import { runXlsxExportAndDynamicValidationTests } from './xlsx-export-and-dynamic-validation.test.ts';
+import { runDataQualityHeatmapAndRegulatoryCalendarTests } from './data-quality-heatmap-and-regulatory-calendar.test.ts';
+import { runAuditor12MonthHistoricalTrendTests } from './auditor-12month-historical-trend.test.ts';
+import { runPhase47VisibilityAndResponsiveAudit } from './phase47-dashboard-component-visibility-responsive-viewing-audit.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -442,6 +446,10 @@ async function runFullApplicationTestSuite() {
   await runRealtimeSsotSynchronizationTests();
   runConfigurationGovernanceVersioningTests();
   await runPhase9PlatformHardeningAcceptanceTests();
+  await runReportingPerformanceAnalyticsTests();
+  await runDataQualityHeatmapAndRegulatoryCalendarTests();
+  await runAuditor12MonthHistoricalTrendTests();
+  await runPhase47VisibilityAndResponsiveAudit();
 
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');

@@ -4,7 +4,34 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
-## [37.0.0-phase37-cross-phase-integration-security-regression-and-acceptance] - 2026-10-03
+## [47.0.0-phase47-dashboard-component-visibility-responsive-viewing-audit] - 2026-10-05
+
+### Added & Enhanced
+- **Phase 47: Complete Dashboard Component Visibility, Responsive Layout & Full-Page Viewing Audit (`47_DASHBOARD_COMPONENT_VISIBILITY_RESPONSIVE_FULL_VIEW_AUDIT.md`, `OB_Phase_47_Dashboard_Component_Visibility_Responsive_Viewing_Audit/47_DASHBOARD_COMPONENT_VISIBILITY_RESPONSIVE_FULL_VIEW_AUDIT_REPORT.md`, `src/tests/phase47-dashboard-component-visibility-responsive-viewing-audit.test.ts`)**:
+  - **Top Navbar Telemetry & Banner Cleanup**:
+    - Checked and verified complete absence of network indicator and microsecond latency indicators (`µs`, `microsecond`, latency telemetry) across Administrator, Maker, Checker, and Auditor dashboards.
+    - Checked and verified complete removal of `"Regulation.... National Bank Of Ethiopia"` banner text from the top navbar, ensuring prominent display of the authentic Oromia Bank logo without visual clutter.
+  - **Maker Report Creation "Help" Button Label**:
+    - Replaced the obsolete `"Remediation Assistant"` button label with `"Help"` on the Maker report form creation/editing page (`DynamicReportForm.tsx`).
+    - Retained all underlying 4-part NBE validation guidance, blocking error badges, warning counters, and click-to-locate auto-fix capabilities.
+  - **Reusable Maximize / Full View Capability**:
+    - Implemented `MaximizedViewModal` (`src/components/MaximizedViewModal.tsx`): Accessible dialog with `role="dialog"`, `aria-modal="true"`, mobile safe-area insets, backdrop blur, component identification (title, badge, subtitle, icon), action slot, prominent Restore button with `Esc` indicator, and contained scrollable body.
+    - Implemented `MaximizeButton` (`src/components/MaximizeButton.tsx`): Universal >=44px touch-friendly trigger button with `Maximize2` icon and accessible ARIA label.
+    - Integrated full-view capability into 9 critical dense views: User Directory (`AdminDashboard.tsx`), Statutory Returns (`MakerWorkspace.tsx`), 4-Eyes Review Queue (`CheckerInbox.tsx`), Supervisory Queue & Inspection (`AuditorDashboard.tsx`), Template & Return Catalog (`MakerLibraryView.tsx`), Immutable Audit Trail (`AuditTrailView.tsx`), Multi-Record Dynamic Area (`DynamicAreaTable.tsx`), 12-Month Historical Trend Chart (`HistoricalSubmissionTrendChart.tsx`), and Regulatory SLA Analytics (`ReportingPerformanceAnalytics.tsx`).
+  - **Modal Keyboard Accessibility & Escape Handling**:
+    - Added global `Escape` key listeners with `e.stopPropagation()` in `NotificationCenter.tsx`, `KeyboardShortcutsModal.tsx`, `OfflineStorageModal.tsx`, and `MaximizedViewModal.tsx`.
+  - **Page-Boundary Contract & Contained Scrolling**:
+    - Enforced `overflow-x-hidden` at the root layout container in `App.tsx` to eliminate document-level horizontal scroll.
+    - Added contained horizontal touch scrolling (`overflow-x-auto touch-scroll-x`) with regulatory minimum column widths (`min-w-[650px]` to `min-w-[850px]`) across tables in Admin, Maker, Checker, Auditor, Library, and Area subtables.
+    - Added `overflow-x-auto touch-scroll-x` to JSON payload `<pre>` tags in `NbeSimulatorView.tsx` to prevent modal boundary clipping on mobile.
+    - Guaranteed minimum 44×44px touch target dimensions for interactive controls.
+  - **9-Viewport Responsive Matrix Verification**:
+    - Validated all 9 required viewports: 320×568 (iPhone SE), 390×844 (iPhone 14/15), 430×932 (iPhone Pro Max), 844×390 (Mobile Landscape), 768×1024 (iPad Portrait), 1024×768 (iPad Landscape), 1366×768 (HD Laptop), 1440×900 (Desktop Baseline), and 1920×1080 (FHD Large Desktop).
+  - **Full Automated Test & Regression Suite**:
+    - Created `src/tests/phase47-dashboard-component-visibility-responsive-viewing-audit.test.ts` and registered in `src/tests/run-all-tests.ts`.
+    - Executed full test runner: 100% of test suites passed cleanly with zero regressions.
+
+---
 
 ### Added & Enhanced
 - **Phase 37: Cross-Phase Integration, Security, Regression & Acceptance (`37_CROSS_PHASE_INTEGRATION_SECURITY_REGRESSION_AND_ACCEPTANCE.md`, `src/tests/phase37-cross-phase-integration-security-regression-and-acceptance.test.ts`)**:

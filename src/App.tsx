@@ -913,6 +913,9 @@ export default function App() {
         onNavigateToSimulator={() => {
           handleSafeTabChange('NBE_SIMULATOR');
         }}
+        onSelectTab={(tab) => {
+          handleSafeTabChange(tab as ViewTab);
+        }}
       />
 
       {/* 2. Main Window Container (Equal Full Length between Sidebar and Viewport) */}

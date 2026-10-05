@@ -62,6 +62,8 @@ import { getReportByKey } from '../data/report-registry.ts';
 import { userService } from '../services/userService.ts';
 import { triggerHaptic, vibrate } from '../utils/haptics.ts';
 import { CheckerSelector } from './CheckerSelector.tsx';
+import { MaximizedViewModal } from './MaximizedViewModal.tsx';
+import { MaximizeButton } from './MaximizeButton.tsx';
 
 interface MakerLibraryViewProps {
   currentUser: UserSession;
@@ -132,6 +134,7 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
   const [isValidating, setIsValidating] = useState(false);
 
   const [isNewReturnModalOpen, setIsNewReturnModalOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
 
   // Phase 26 Modals State
   // Checker 4-Eyes Review Modal
@@ -815,6 +818,11 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
                 <ListIcon className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            <MaximizeButton
+              onClick={() => setIsMaximized(true)}
+              title="Maximize Regulatory Dossier Archive (Esc to restore)"
+            />
           </div>
         </div>
 
@@ -1148,8 +1156,8 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
       ) : (
         /* Table View (Compact) */
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto min-w-full touch-scroll-x">
+            <table className="min-w-[700px] w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 uppercase font-mono text-[10px]">
                 <tr>
                   <th className="py-3 px-4">Code & Title</th>
@@ -2207,6 +2215,123 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* PHASE 47: FULL VIEW / MAXIMIZED LIBRARY DOSSIER */}
+      {isMaximized && (
+        <MaximizedViewModal
+          isOpen={isMaximized}
+          onClose={() => setIsMaximized(false)}
+          title="Regulatory Dossier Archive & Library"
+          badge="Audit Archive"
+          subtitle={`Complete lifecycle archive of ${queryResult.total} filings, unsubmitted drafts, and signed statutory returns`}
+          icon={BookOpen}
+        >
+          <div className="space-y-4">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
+              <div className="overflow-x-auto min-w-full touch-scroll-x">
+                <table className="min-w-[800px] w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold uppercase font-mono text-[10px] sticky top-0 z-10">
+                      <th className="py-3 px-4">Code & Title</th>
+                      <th className="py-3 px-3">Lifecycle State</th>
+                      <th className="py-3 px-3">Department</th>
+                      <th className="py-3 px-3">Ver</th>
+                      <th className="py-3 px-3">Prepared By</th>
+                      <th className="py-3 px-3">Last Modified</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {queryResult.items.map((sub) => {
+                      const report = getReportByKey(sub.reportKey);
+                      const title = report?.Title || sub.reportKey;
+                      const lState = deriveLibraryLifecycleState(sub);
+                      const editable = isEditable(sub);
+
+                      return (
+                        <tr key={sub.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="py-2.5 px-4">
+                            <span className="font-mono text-xs font-bold text-ob-indigo-700 dark:text-ob-indigo-400 bg-ob-indigo-50 dark:bg-ob-indigo-950/60 px-1.5 py-0.5 rounded border border-ob-indigo-200 dark:border-ob-indigo-800/60">
+                              {sub.reportKey}
+                            </span>
+                            <div className="font-bold text-slate-900 dark:text-white mt-1 truncate max-w-sm">{title}</div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                lState === 'NBE_SUBMITTED'
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                  : lState === 'APPROVED'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : lState === 'PENDING_CHECKER'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                  : lState === 'CORRECTION_REQUIRED'
+                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {lState}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                            {sub.department || 'Credit Operations'}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-700 dark:text-slate-300">
+                            v{sub.version || 1}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                            {sub.makerName}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-500">
+                            {new Date(sub.updatedAt).toLocaleDateString()}
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsMaximized(false);
+                                  onSelectSubmission(sub);
+                                }}
+                                className="px-2.5 py-1 bg-ob-indigo-600 hover:bg-ob-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                              >
+                                {editable && currentUser.role === 'MAKER' ? 'Edit' : 'View'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Showing {queryResult.items.length} of {queryResult.total} filings</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <span className="px-2 font-mono">Page {page} of {queryResult.totalPages || 1}</span>
+                <button
+                  type="button"
+                  disabled={page >= (queryResult.totalPages || 1)}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </MaximizedViewModal>
       )}
     </div>
   );

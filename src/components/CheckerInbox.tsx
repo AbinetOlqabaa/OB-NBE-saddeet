@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import { ValidationEngine } from '../utils/validationEngine.ts';
 import { Pagination } from './Pagination.tsx';
+import { MaximizedViewModal } from './MaximizedViewModal.tsx';
+import { MaximizeButton } from './MaximizeButton.tsx';
 import { PdfReportGenerator } from '../utils/pdfReportGenerator.ts';
 import { exportRegulatoryReportPDF } from '../utils/regulatoryReportPdfExport.ts';
 import { exportRegulatoryReportXLSX } from '../utils/regulatoryReportXlsxExport.ts';
@@ -72,6 +74,7 @@ export const CheckerInbox: React.FC<CheckerInboxProps> = ({
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [archivedSubmissionIds, setArchivedSubmissionIds] = useState<string[]>([]);
+  const [isMaximized, setIsMaximized] = useState(false);
 
   // Pagination state - 6 items per page
   const [page, setPage] = useState(1);
@@ -341,6 +344,11 @@ export const CheckerInbox: React.FC<CheckerInboxProps> = ({
               </option>
             ))}
           </select>
+
+          <MaximizeButton
+            onClick={() => setIsMaximized(true)}
+            title="Maximize 4-Eyes Review Queue (Esc to restore)"
+          />
         </div>
       </div>
 
@@ -696,6 +704,107 @@ export const CheckerInbox: React.FC<CheckerInboxProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* PHASE 47: FULL VIEW / MAXIMIZED REVIEW QUEUE */}
+      {isMaximized && (
+        <MaximizedViewModal
+          isOpen={isMaximized}
+          onClose={() => setIsMaximized(false)}
+          title="Department 4-Eyes Review Queue"
+          badge="Checker Authority"
+          subtitle={`Inspection ledger of ${filteredSubmissions.length} regulatory returns awaiting 4-eyes approval in ${currentUser.department}`}
+          icon={Shield}
+        >
+          <div className="space-y-4">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
+              <div className="overflow-x-auto min-w-full touch-scroll-x">
+                <table className="w-full min-w-[750px] text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold sticky top-0 z-10">
+                      <th className="py-3 px-3">Return Code</th>
+                      <th className="py-3 px-3">Report Name</th>
+                      <th className="py-3 px-3">Department</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3">Maker Details</th>
+                      <th className="py-3 px-3">Submitted At</th>
+                      <th className="py-3 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {paginatedSubmissions.map((sub) => {
+                      const tpl = templates.find((t) => t.ReturnKey === sub.reportKey);
+                      return (
+                        <tr key={sub.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="py-2.5 px-3">
+                            <span className="font-mono text-xs font-bold text-ob-indigo-700 dark:text-ob-indigo-400 bg-ob-indigo-50 dark:bg-ob-indigo-950/60 px-1.5 py-0.5 rounded border border-ob-indigo-200 dark:border-ob-indigo-800/60">
+                              {sub.reportKey}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-900 dark:text-white truncate max-w-xs">
+                              {tpl?.Title || sub.reportKey}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">v{sub.version || 1}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                            {sub.department || 'Credit Operations'}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                sub.status === 'APPROVED'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : sub.status === 'PENDING_CHECKER'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                  : sub.status === 'SENT'
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                              }`}
+                            >
+                              {sub.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                            <div>{sub.makerName}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{sub.makerEmployeeId || 'EMP-REG'}</div>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-500">
+                            {sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsMaximized(false);
+                                setSelectedSubForReview(sub);
+                              }}
+                              className="px-3 py-1 bg-ob-indigo-600 hover:bg-ob-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              {sub.status === 'PENDING_CHECKER' ? '4-Eyes Review' : 'View Details'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <Pagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredSubmissions.length}
+              onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(sz) => {
+                setPageSize(sz);
+                setPage(1);
+              }}
+              itemName="submissions"
+            />
+          </div>
+        </MaximizedViewModal>
       )}
     </div>
   );

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { UserSession } from '../types/regulatory.ts';
+import type { UserSession } from '../types/regulatory.ts';
 import { getDepartmentForReport } from '../data/organizationHierarchy.ts';
 import { BrowserSafeEventEmitter } from '../utils/browserEventEmitter.ts';
 

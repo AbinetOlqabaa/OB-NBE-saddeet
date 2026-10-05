@@ -570,6 +570,338 @@ class SubmissionServiceClass {
       };
       this.submissions.set(sub3.id, sub3);
     }
+
+    // Historical returns across the last 30 days for rich compliance & performance analytics
+    this.seedHistorical30DayAnalyticsData();
+  }
+
+  private seedHistorical30DayAnalyticsData(): void {
+    const historicalSeeds: {
+      id: string;
+      reportKey: string;
+      department: string;
+      daysAgo: number;
+      makerHours: number;
+      checkerReviewHours: number;
+      status: SubmissionStatus;
+      makerName: string;
+      checkerName: string;
+      comments: string;
+      nbeRef?: string;
+    }[] = [
+      {
+        id: 'hist_sub_01',
+        reportKey: 'M_LCPLC001',
+        department: 'Credit Operations & Portfolio Management',
+        daysAgo: 1,
+        makerHours: 28,
+        checkerReviewHours: 2.2,
+        status: 'APPROVED',
+        makerName: 'Abebe Kebede',
+        checkerName: 'Chala Desta',
+        comments: 'Monthly loan classification and portfolio provisioning verified against core banking loan ledger.',
+      },
+      {
+        id: 'hist_sub_02',
+        reportKey: 'BOR_TEN_PER_LB002',
+        department: 'Credit Risk & Prudential Reporting',
+        daysAgo: 2,
+        makerHours: 52,
+        checkerReviewHours: 3.4,
+        status: 'SENT',
+        makerName: 'Dawit Tadesse',
+        checkerName: 'Almaz Bekele',
+        comments: 'Single borrower exposure computation validated under NBE Directive SBB/43/2008.',
+        nbeRef: 'NBE-EXP-2026-0929-8812',
+      },
+      {
+        id: 'hist_sub_03',
+        reportKey: 'POBEPE001',
+        department: 'Trade Services & International Banking',
+        daysAgo: 4,
+        makerHours: 100,
+        checkerReviewHours: 1.8,
+        status: 'SENT',
+        makerName: 'Tigist Alemu',
+        checkerName: 'Meron Worku',
+        comments: 'Letters of credit and standby guarantees provisioning verified with foreign operations division.',
+        nbeRef: 'NBE-TRD-2026-0927-4109',
+      },
+      {
+        id: 'hist_sub_04',
+        reportKey: 'TOP_20_BOR_TB001',
+        department: 'Credit Operations & Portfolio Management',
+        daysAgo: 6,
+        makerHours: 148,
+        checkerReviewHours: 4.1,
+        status: 'APPROVED',
+        makerName: 'Abebe Kebede',
+        checkerName: 'Chala Desta',
+        comments: 'Top 20 aggregate credit exposures reconciled with corporate banking accounts.',
+      },
+      {
+        id: 'hist_sub_05',
+        reportKey: 'ARLAL001',
+        department: 'Specialized Asset Recovery & Workout',
+        daysAgo: 8,
+        makerHours: 196,
+        checkerReviewHours: 2.5,
+        status: 'SENT',
+        makerName: 'Kenenisa Bekele',
+        checkerName: 'Derartu Tulu',
+        comments: 'Restructured loan schedule and collateral valuation verified by recovery committee.',
+        nbeRef: 'NBE-REC-2026-0923-5521',
+      },
+      {
+        id: 'hist_sub_06',
+        reportKey: 'DigitalLendingDL001',
+        department: 'Digital Banking & Fintech Operations',
+        daysAgo: 10,
+        makerHours: 244,
+        checkerReviewHours: 3.6,
+        status: 'APPROVED',
+        makerName: 'Tigist Alemu',
+        checkerName: 'Chala Desta',
+        comments: 'Micro-lending platform transaction volume and default rates verified.',
+      },
+      {
+        id: 'hist_sub_07',
+        reportKey: 'TOP_20_NPLs_TN001',
+        department: 'Credit Risk & Prudential Reporting',
+        daysAgo: 12,
+        makerHours: 292,
+        checkerReviewHours: 1.5,
+        status: 'CORRECTION_REQUIRED',
+        makerName: 'Dawit Tadesse',
+        checkerName: 'Almaz Bekele',
+        comments: 'Re-computation required: specific provision for borrower #4 does not reflect collateral discount.',
+      },
+      {
+        id: 'hist_sub_08',
+        reportKey: 'ANARN001',
+        department: 'Specialized Asset Recovery & Workout',
+        daysAgo: 14,
+        makerHours: 340,
+        checkerReviewHours: 2.8,
+        status: 'SENT',
+        makerName: 'Kenenisa Bekele',
+        checkerName: 'Derartu Tulu',
+        comments: 'Non-accrual re-categorization documented with 6 months continuous performance evidence.',
+        nbeRef: 'NBE-ACR-2026-0917-9034',
+      },
+      {
+        id: 'hist_sub_09',
+        reportKey: 'NPL&PRO_NL001',
+        department: 'Credit Operations & Portfolio Management',
+        daysAgo: 16,
+        makerHours: 388,
+        checkerReviewHours: 5.2,
+        status: 'SENT',
+        makerName: 'Abebe Kebede',
+        checkerName: 'Chala Desta',
+        comments: 'Comprehensive NPL breakdown and general reserve allocation passed checker 4-eyes check.',
+        nbeRef: 'NBE-NPL-2026-0915-7718',
+      },
+      {
+        id: 'hist_sub_10',
+        reportKey: 'M_LCPLC001',
+        department: 'Credit Operations & Portfolio Management',
+        daysAgo: 19,
+        makerHours: 460,
+        checkerReviewHours: 1.9,
+        status: 'SENT',
+        makerName: 'Abebe Kebede',
+        checkerName: 'Chala Desta',
+        comments: 'Prior monthly loan provisioning verified and transmitted to NBE statutory gateway.',
+        nbeRef: 'NBE-LP-2026-0912-3211',
+      },
+      {
+        id: 'hist_sub_11',
+        reportKey: 'POBEPE001',
+        department: 'Trade Services & International Banking',
+        daysAgo: 21,
+        makerHours: 508,
+        checkerReviewHours: 2.1,
+        status: 'SENT',
+        makerName: 'Tigist Alemu',
+        checkerName: 'Meron Worku',
+        comments: 'Foreign exchange commitments and documentary credits reconciliation completed.',
+        nbeRef: 'NBE-TRD-2026-0910-6643',
+      },
+      {
+        id: 'hist_sub_12',
+        reportKey: 'BOR_TEN_PER_LB002',
+        department: 'Credit Risk & Prudential Reporting',
+        daysAgo: 24,
+        makerHours: 580,
+        checkerReviewHours: 3.9,
+        status: 'SENT',
+        makerName: 'Dawit Tadesse',
+        checkerName: 'Almaz Bekele',
+        comments: 'Regulatory single borrower limit compliance verified at 18.2% total capital.',
+        nbeRef: 'NBE-EXP-2026-0907-1192',
+      },
+      {
+        id: 'hist_sub_13',
+        reportKey: 'ARLAL001',
+        department: 'Specialized Asset Recovery & Workout',
+        daysAgo: 26,
+        makerHours: 628,
+        checkerReviewHours: 4.5,
+        status: 'SENT',
+        makerName: 'Kenenisa Bekele',
+        checkerName: 'Derartu Tulu',
+        comments: 'Workout agreements and rescheduled terms ratified by recovery oversight board.',
+        nbeRef: 'NBE-REC-2026-0905-4402',
+      },
+      {
+        id: 'hist_sub_14',
+        reportKey: 'LOA_ADV_OUT_LA001',
+        department: 'Credit Operations & Portfolio Management',
+        daysAgo: 28,
+        makerHours: 676,
+        checkerReviewHours: 2.4,
+        status: 'SENT',
+        makerName: 'Abebe Kebede',
+        checkerName: 'Chala Desta',
+        comments: 'Monthly aggregate loans and advances schedule delivered and acknowledged by NBE portal.',
+        nbeRef: 'NBE-LA-2026-0903-8820',
+      },
+    ];
+
+    const now = Date.now();
+    for (const h of historicalSeeds) {
+      if (this.submissions.has(h.id)) continue;
+      const tpl = getReportByKey(h.reportKey);
+      const snapshot = tpl ? this.createTemplateSnapshot(tpl) : ({} as any);
+
+      const createdTime = new Date(now - h.daysAgo * 24 * 3600000 - h.checkerReviewHours * 3600000).toISOString();
+      const submittedTime = new Date(now - h.daysAgo * 24 * 3600000 - h.checkerReviewHours * 3600000 + 3600000).toISOString();
+      const reviewedTime = new Date(now - h.daysAgo * 24 * 3600000).toISOString();
+
+      const sampleValues: Record<string, any> = {
+        '001_00001': 12500000000,
+        '001_00002': 1850000000,
+        '001_00003': 1420000000,
+        'DL001_01': 38000,
+        'DL001_02': 142000000,
+      };
+
+      const integrity = this.computeIntegrityHash({
+        id: h.id,
+        reportKey: h.reportKey,
+        version: 1,
+        templateVersion: 1,
+        values: sampleValues,
+        status: h.status,
+      });
+
+      const submissionRecord: ReportSubmission = {
+        id: h.id,
+        reportKey: h.reportKey,
+        department: h.department,
+        periodYear: 2026,
+        periodStart: '2026-07-01T00:00:00',
+        periodEnd: '2026-09-30T00:00:00',
+        institutionCode: '0000013',
+        status: h.status,
+        version: 1,
+        templateVersion: 1,
+        dataVersion: 1,
+        templateSnapshot: snapshot,
+        dataSnapshot: sampleValues,
+        dynamicRowsSnapshot: {},
+        structuralHash: tpl ? this.generateStructuralHash(tpl) : 'STRUCT_HASH_HIST',
+        integrityHash: integrity,
+        historicalSnapshots: [
+          {
+            snapshotId: `snap_${h.id}_v1`,
+            version: 1,
+            templateVersion: 1,
+            dataVersion: 1,
+            timestamp: reviewedTime,
+            status: h.status,
+            capturedBy: h.checkerName,
+            capturedByRole: 'CHECKER',
+            reason: h.comments,
+            values: sampleValues,
+            dynamicRows: {},
+            templateSnapshot: snapshot,
+            structuralHash: tpl ? this.generateStructuralHash(tpl) : 'STRUCT_HASH_HIST',
+            integrityHash: integrity,
+          },
+        ],
+        revisionHistory: [
+          {
+            version: 1,
+            modifiedAt: createdTime,
+            modifiedBy: h.makerName,
+            modifiedByRole: 'MAKER',
+            values: sampleValues,
+            dynamicRows: {},
+            reason: 'Statutory periodic computation and reconciliation',
+            templateSnapshot: snapshot,
+            integrityHash: integrity,
+          },
+        ],
+        values: sampleValues,
+        dynamicRows: {},
+        makerId: 'usr_maker_1',
+        makerName: h.makerName,
+        makerEmail: `${h.makerName.toLowerCase().replace(/\s+/g, '.')}@oromiabank.com`,
+        makerDepartment: h.department,
+        checkerId: 'usr_checker_1',
+        checkerName: h.checkerName,
+        checkerEmail: `${h.checkerName.toLowerCase().replace(/\s+/g, '.')}@oromiabank.com`,
+        checkerDepartment: h.department,
+        comments: [
+          {
+            id: `comm_${h.id}_1`,
+            userId: 'usr_maker_1',
+            userName: h.makerName,
+            userRole: 'MAKER',
+            comment: 'Statutory figures computed from verified bank sub-ledgers.',
+            action: 'SUBMIT',
+            timestamp: submittedTime,
+          },
+          {
+            id: `comm_${h.id}_2`,
+            userId: 'usr_checker_1',
+            userName: h.checkerName,
+            userRole: 'CHECKER',
+            comment: h.comments,
+            action: h.status === 'CORRECTION_REQUIRED' ? 'REQUEST_CORRECTION' : 'APPROVE',
+            timestamp: reviewedTime,
+          },
+        ],
+        deliveryAttempts: h.nbeRef
+          ? [
+              {
+                id: `del_${h.id}`,
+                attemptNumber: 1,
+                timestamp: reviewedTime,
+                endpointUrl: 'https://gateway.nbe.gov.et/api/v1/returns/submit',
+                status: 'SUCCESS',
+                statusCode: 200,
+                correlationId: `corr_${h.id}`,
+                idempotencyKey: `idem_${h.id}`,
+                requestPayload: sampleValues,
+                responsePayload: { receipt: h.nbeRef, status: 'ACCEPTED' },
+              },
+            ]
+          : [],
+        createdAt: createdTime,
+        updatedAt: reviewedTime,
+        submittedAt: submittedTime,
+        reviewedAt: reviewedTime,
+        approvedAt: h.status === 'APPROVED' || h.status === 'SENT' ? reviewedTime : undefined,
+        finalSubmittedAt: h.status === 'SENT' ? reviewedTime : undefined,
+        finalSubmittedBy: h.status === 'SENT' ? h.makerName : undefined,
+        nbeReferenceNumber: h.nbeRef,
+      };
+
+      this.submissions.set(h.id, submissionRecord);
+    }
   }
 
   public getAll(): ReportSubmission[] {

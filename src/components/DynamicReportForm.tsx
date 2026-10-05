@@ -1305,7 +1305,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
         <div className="flex items-center gap-4 text-[11px] text-slate-600 dark:text-slate-300">
           <span className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1">
             <Building className="w-3 h-3 text-slate-400" />
-            Oromia Bank (0000013)
+            Oromia Bank
           </span>
           <span>•</span>
           <span className="flex items-center gap-1">

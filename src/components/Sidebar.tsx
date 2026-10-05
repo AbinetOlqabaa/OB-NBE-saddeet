@@ -742,8 +742,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="text-xs font-bold text-white truncate">{currentUser.name}</div>
                 <div className="text-[10px] text-ob-green-300 font-mono flex items-center gap-1">
                   <span>{currentUser.role}</span>
-                  <span className="text-white/40">•</span>
-                  <span className="text-white/80 truncate">{currentUser.institutionCode}</span>
                 </div>
               </div>
             </div>
